@@ -59,6 +59,12 @@
           <button class="nav-btn" data-target="resources">Resources</button>
           <button id="adminControlPanelBtn" class="nav-btn" data-target="admin-panel" hidden>Control Panel</button>
         </nav>
+        <button id="logoutBtn" class="logout-btn" type="button" aria-label="Sign out" title="Sign out">
+          <svg class="signout-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 8l4 4-4 4M18 12H8" />
+          </svg>
+          <span>Sign out</span>
+        </button>
       </aside>
 
       <main class="main-content">
@@ -77,12 +83,6 @@
                 <svg class="notification-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
                 </svg>
-              </button>
-              <button id="logoutBtn" class="logout-btn" type="button" aria-label="Sign out" title="Sign out">
-                <svg class="signout-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 8l4 4-4 4M18 12H8" />
-                </svg>
-                <span>Sign out</span>
               </button>
             </div>
             <div class="class-actions">
@@ -282,6 +282,18 @@
         </div>
 
         <section id="classes" class="content-section active">
+          <div class="classes-toolbar">
+            <div class="classes-heading"><h2>Classes</h2><p>Find and manage your classes.</p></div>
+            <div class="classes-controls">
+              <label class="class-search"><span aria-hidden="true">⌕</span><input id="classSearchInput" type="search" placeholder="Search by name, code or instructor" aria-label="Search classes"></label>
+              <div class="class-filters" role="group" aria-label="Filter classes">
+                <button type="button" class="class-filter active" data-class-filter="all" aria-pressed="true">All</button>
+                <button type="button" class="class-filter" data-class-filter="active" aria-pressed="false">Active</button>
+                <button type="button" class="class-filter" data-class-filter="archived" aria-pressed="false">Archived</button>
+              </div>
+              <span id="classCount" class="class-count" aria-live="polite"></span>
+            </div>
+          </div>
           <section id="coursesContainer" class="course-list" aria-live="polite" data-loading="true">
             <p class="course-loader">Loading active classes…</p>
             <article class="course-card clickable" tabindex="0" role="button" data-course-category="Programming" data-course-title="EVENT-DRIVEN PROGRAMMING" data-course-description="Learn how user actions and system events drive interactive applications. Practice building event handlers and callback flows." data-class-materials='["Event callback notes", "Practice exercise", "Quiz 5"]' data-class-resources='["Example JS file", "Debugger tips", "Event flow chart"]' data-class-announcements='["Submit event handler assignment.", "Live coding session today at 3pm."]' data-class-upcoming='["Quiz 5 due tomorrow", "Interactive lab review"]'>
@@ -635,11 +647,10 @@
       <button class="chat-toggle" aria-label="Open assistant">💬 Chatbot</button>
       <div class="chat-panel">
         <div class="chat-header">
-          <span>AI Study Assistant</span>
+          <span>AI Chatbot assistant</span>
           <button class="chat-close" type="button" aria-label="Close chatbot" title="Close chatbot">&times;</button>
         </div>
         <div class="chat-body chat-messages">
-          <div class="bubble message-ai">Hello! I can help summarize lessons, explain topics, and answer questions.</div>
         </div>
         <div class="chat-footer">
           <input id="chatInput" type="text" placeholder="Ask the AI..." aria-label="Chat message" />

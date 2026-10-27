@@ -414,6 +414,38 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   };
 
+  const classSearch = document.getElementById('classSearchInput');
+  const classFilters = document.querySelectorAll('[data-class-filter]');
+  let selectedClassFilter = 'all';
+  const applyClassFilters = () => {
+    const query = String(classSearch?.value || '').trim().toLowerCase();
+    const cards = [...document.querySelectorAll('#coursesContainer .course-card')];
+    let visible = 0;
+    cards.forEach((card) => {
+      const archived = card.dataset.classStatus === 'archived';
+      const text = `${card.textContent} ${card.dataset.courseTitle || ''} ${card.dataset.courseCategory || ''}`.toLowerCase();
+      const matchesFilter = selectedClassFilter === 'all' || (selectedClassFilter === 'archived' ? archived : !archived);
+      const show = matchesFilter && (!query || text.includes(query));
+      card.hidden = !show;
+      if (show) visible++;
+    });
+    const count = document.getElementById('classCount');
+    if (count) count.textContent = `${visible} ${visible === 1 ? 'class' : 'classes'}`;
+    let empty = document.getElementById('classFilterEmpty');
+    if (!empty && cards.length) {
+      empty = document.createElement('p'); empty.id = 'classFilterEmpty'; empty.className = 'course-loader';
+      document.getElementById('coursesContainer')?.appendChild(empty);
+    }
+    if (empty) { empty.textContent = query ? 'No classes match your search.' : `No ${selectedClassFilter === 'all' ? '' : `${selectedClassFilter} `}classes found.`; empty.hidden = visible > 0 || cards.length === 0; }
+  };
+  classSearch?.addEventListener('input', applyClassFilters);
+  classFilters.forEach((filter) => filter.addEventListener('click', () => {
+    selectedClassFilter = filter.dataset.classFilter || 'all';
+    classFilters.forEach((item) => { const active = item === filter; item.classList.toggle('active', active); item.setAttribute('aria-pressed', String(active)); });
+    applyClassFilters();
+  }));
+  window.applyClassFilters = applyClassFilters;
+
   navButtons.forEach((button) => {
     button.addEventListener('click', () => {
       navButtons.forEach((navButton) => navButton.classList.remove('active'));
@@ -639,6 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
           section,
           subText: subjectNotes,
           teacherId: getCurrentUserId(),
+          createdBy: getCurrentUserId(),
         }),
       });
       const data = await response.json();
@@ -1903,31 +1936,50 @@ async function openNotificationModal() {
       notifBadge.textContent = `${totalHighlights} Highlights`;
     }
 
+    const readKey = `lms_read_notifications_${getCurrentUserId() || 'guest'}`;
+    let readIds = [];
+    try { readIds = JSON.parse(localStorage.getItem(readKey) || '[]'); } catch (_) { readIds = []; }
+    const alerts = [
+      ...(Array.isArray(data.priorityAlerts) ? data.priorityAlerts : []).map((item) => ({ ...item, group: 'priority' })),
+      ...(Array.isArray(data.systemAlerts) ? data.systemAlerts : []).map((item) => ({ ...item, group: 'system' })),
+    ].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    const alertId = (item) => String(item.notification_id ?? item.id ?? `${item.group}:${item.title || ''}:${item.created_at || ''}`);
+    const renderAlerts = (items) => items.length ? items.map((item) => {
+      const isRead = readIds.includes(alertId(item));
+      return `<div class="notification-alert-row${isRead ? ' is-read' : ''}"><span class="notification-alert-icon" aria-hidden="true">${item.group === 'priority' ? '◷' : '▤'}</span><div class="notification-alert-copy"><strong>${escapeHtml(item.title || 'Notification')}</strong><span>${escapeHtml(item.message || '')} · ${escapeHtml(formatTimeAgo(item.created_at))}</span></div><i class="notification-unread-dot" aria-label="Unread"></i></div>`;
+    }).join('') : '<p class="notification-empty">You’re all caught up.</p>';
+    const unread = alerts.filter((item) => !readIds.includes(alertId(item)));
+    const earlier = alerts.filter((item) => readIds.includes(alertId(item)));
+    const notificationHeader = modal?.querySelector('.notification-header');
+    if (notificationHeader) {
+      let readAll = notificationHeader.querySelector('.notification-read-all');
+      if (!readAll) {
+        readAll = document.createElement('button'); readAll.type = 'button'; readAll.className = 'notification-read-all';
+        notificationHeader.appendChild(readAll);
+      }
+      readAll.textContent = 'Mark all as read';
+      readAll.onclick = () => {
+        readIds = alerts.map(alertId);
+        localStorage.setItem(readKey, JSON.stringify(readIds));
+        if (priorityContainer) priorityContainer.innerHTML = '<p class="notification-empty">You’re all caught up.</p>';
+        if (systemContainer) systemContainer.innerHTML = renderAlerts(alerts);
+        bell?.classList.remove('has-unread');
+      };
+    }
+
     if (priorityContainer) {
-      const priorityAlerts = Array.isArray(data.priorityAlerts) ? data.priorityAlerts : [];
-      priorityContainer.innerHTML = priorityAlerts.length > 0
-        ? priorityAlerts.map((item) => `
-            <div style="background: #fff; border: 1px solid #f8bbd0; border-radius: 12px; padding: 12px 16px;">
-              <strong style="font-size: 14px; color: #111; display: block;">${escapeHtml(item.title || 'Priority alert')}</strong>
-              <p style="font-size: 13px; color: #555; margin: 2px 0 6px 0;">${escapeHtml(item.message || '')}</p>
-              <span style="font-size: 11px; color: #888;">${formatTimeAgo(item.created_at)}</span>
-            </div>
-          `).join('')
-        : '<div style="font-size: 12px; color: #888;">No priority alerts.</div>';
+      priorityContainer.innerHTML = renderAlerts(unread);
+      const priorityLabel = priorityContainer.parentElement?.querySelector('.notification-group-label');
+      if (priorityLabel) priorityLabel.textContent = 'NEW';
     }
 
     if (systemContainer) {
-      const systemAlerts = Array.isArray(data.systemAlerts) ? data.systemAlerts : [];
-      systemContainer.innerHTML = systemAlerts.length > 0
-        ? systemAlerts.map((item) => `
-            <div style="background: #fff; border: 1px solid #f8bbd0; border-radius: 12px; padding: 12px 16px;">
-              <strong style="font-size: 14px; color: #111; display: block;">${escapeHtml(item.title || 'System alert')}</strong>
-              <p style="font-size: 13px; color: #555; margin: 2px 0 6px 0;">${escapeHtml(item.message || '')}</p>
-              <span style="font-size: 11px; color: #888;">${formatTimeAgo(item.created_at)}</span>
-            </div>
-          `).join('')
-        : '<div style="font-size: 12px; color: #888;">No system alerts.</div>';
+      systemContainer.innerHTML = renderAlerts(earlier);
+      const systemLabel = systemContainer.parentElement?.querySelector('.notification-group-label');
+      if (systemLabel) systemLabel.textContent = 'EARLIER';
     }
+    const bell = document.getElementById('notificationBtn');
+    bell?.classList.toggle('has-unread', unread.length > 0);
   } catch (error) {
     console.error('Error opening notification modal:', error);
   }
@@ -2046,7 +2098,7 @@ function renderCourseCards(courses) {
     const subjectText = escapeHtml(metadata.note || '');
     const classCodeText = escapeHtml(course.class_code || 'Not available');
     const sectionBadgeText = sectionText ? ` <span class="meta-label">Section:</span> ${sectionText}` : '';
-    const canDelete = isDean || (isInstructor && Number(course.teacher_id) === Number(currentUserId));
+    const canDelete = isDean || (isInstructor && String(course.teacher_id || '') === String(currentUserId || ''));
     const roleActions = canDelete
       ? `${isDean ? '<button type="button" data-course-action="view-code">View code</button>' : ''}<button class="danger-option" type="button" data-course-action="delete">Delete class</button>`
       : '<button type="button" data-course-action="unenroll">Unenroll</button>';
@@ -2060,6 +2112,7 @@ function renderCourseCards(courses) {
     return `
       <article class="course-card clickable" tabindex="0" role="button"
         data-course-id="${escapeHtml(String(course.course_id || ''))}"
+        data-class-status="${/archiv/i.test(String(course.status || '')) ? 'archived' : 'active'}"
         data-course-category="${escapeHtml(course.code || 'Course')}"
         data-course-title="${titleText}"
         data-course-description="${escapeHtml(course.sub_text || '')}"
@@ -2087,6 +2140,7 @@ function renderCourseCards(courses) {
       </article>
     `;
   }).join('');
+  window.applyClassFilters?.();
 }
 
 function parseCourseMetadata(rawText, fallbackCode) {
@@ -2914,7 +2968,6 @@ function upgradeCreateClassInstructorPicker() {
     fresh.disabled = true;
     if (msg) { msg.textContent = 'Creating class...'; msg.classList.remove('error'); }
     try {
-      const instructorId = Number.parseInt(instructorIdRaw, 10);
       const response = await fetch('/api/classes/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2928,7 +2981,8 @@ function upgradeCreateClassInstructorPicker() {
           subText: subjectNotes,
           // A dean may deliberately leave the class unassigned.  Do not turn
           // that into an assignment to the dean's own account.
-          teacherId: Number.isInteger(instructorId) ? instructorId : null,
+          teacherId: instructorIdRaw || null,
+          createdBy: getCurrentUserId(),
         }),
       });
       const data = await response.json();

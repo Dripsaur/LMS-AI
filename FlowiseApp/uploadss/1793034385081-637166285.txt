@@ -1,0 +1,234 @@
+BAYANIHAN INTEGRATED FOODS CORPORATION
+
+ORGANIZATION DEVELOPMENT EXAMINATION
+
+“Hindi na tayo pamilya”
+
+GROUP 1 — TASK 1: ENTERING ANALYSIS
+
+Proposed consulting firm: Bayanihan Organizational Effectiveness Partners (BOEP)Engagement window: 6 November 2026 – 1 March 2027  |  Client: BIFC (fictional case)Group 1 twist: Bank requires all five sites and interviews with at least 10% of rank-and-file employees; COO blocks Zamboanga access until April.
+
+Deliverable 1 only • Maximum six pages • Prepared for academic review
+
+1.1 Presenting Problem and Likely Underlying Problems
+
+Presenting problem
+
+BIFC needs an independent Organizational Assessment and Improvement Plan before the first drawdown of its conditional ₱800-million loan. The assessment must examine organizational effectiveness and readiness for the technological transition associated with Project Talino. The report is due to the Board by 1 March 2027, before its 15 March 2027 meeting (case, pp. 2, 10–12). The bank’s Group 1 condition requires coverage of all five sites and interviews with at least 10% of rank-and-file employees. The COO’s refusal to permit Zamboanga access until April conflicts directly with the report deadline; it is a feasibility and acceptance risk, not a minor scheduling issue.
+
+Likely underlying problems (hypotheses, not conclusions)
+
+BIFC’s difficulties appear systemic. The hypotheses below must be tested by triangulating records, interviews, focus groups, and observation. A symptom does not by itself prove its cause.
+
+Observed symptom / evidence
+
+Possible underlying cause to test
+
+OD lens / evidence needed
+
+Profitability weakened: net income fell from ₱186m (2023) to ₱61m (2025); gross margin from 24.1% to 18.3% (Appendix C).
+
+Strategy, product mix, operating costs, post-acquisition integration, or process quality may be misaligned.
+
+Burke–Litwin: environment, strategy, systems and performance; compare finance, production and quality trends.
+
+Regular turnover rose 11% to 26%; absenteeism 4.2% to 9.1%; grievances 12 to 47 (Appendix C).
+
+Job insecurity, workload, perceived unfairness, weak supervision, or declining trust may be affecting employee experience.
+
+Weisbord Six-Box: relationships, rewards and leadership; disaggregate by site, shift and employment type.
+
+Customer complaints rose from 3.1 to 7.9 per 10,000 cases; conflicting recall reports exist (Appendices C–D).
+
+Quality controls, accountability, cross-functional coordination or integration may be inconsistent.
+
+Nadler–Tushman Congruence Model: test fit among tasks, people, formal systems and informal practices.
+
+Project Sulong survey answers were linked to employee IDs; critics reportedly moved to night shift; the report was not shared (case, pp. 8–9).
+
+Employees may reasonably fear retaliation and doubt that consultation is confidential or useful.
+
+Schein’s client-system perspective and Weisbord: test trust, leadership behavior and safe participation.
+
+About 40% of supervisors keep handwritten logbooks; some production data is entered up to three weeks late (case, p. 9).
+
+ERP usability, training, incentives, data accuracy or fear of monitoring may be contributing to workarounds.
+
+Nadler–Tushman: compare technology/workflow with skills, rewards and informal routines.
+
+A leaked Talino slide mentioned about 90 positions; 17 long-tenured employees asked about retirement pay and 11 agency workers resigned in August 2026 (case, pp. 9–10; Appendix G).
+
+Unclear communication and credible job-loss fears may be increasing resistance and turnover intentions.
+
+Lewin: identify driving/restraining forces; interview supporters and skeptics separately.
+
+Employees reportedly entered customer names or sales data into public AI chatbots without a company AI policy (case, p. 10; Appendix G).
+
+AI governance, training, acceptable-use rules and data safeguards may be insufficient.
+
+Burke–Litwin / systems lens: review policy, accountability, access controls and training.
+
+
+
+Is Project Talino a cause, symptom, or trigger?
+
+Project Talino is best treated as a trigger and possible contributing cause—not automatically the root cause. It has activated fears about job displacement, surveillance and broken promises, while the manner of communication and governance may add to mistrust. The assessment must separate verified decisions from rumors, assess both employees who fear the change and those who support it, and evaluate the human and organizational effects without selecting individual jobs or employees for elimination.
+
+1.2 Client-System Map Using Schein’s Client Types
+
+Schein’s client types distinguish the person who makes contact from those who authorize, receive, influence or experience the work. These are provisional classifications to confirm in contracting; the same person can occupy more than one role.
+
+Schein client type
+
+Person / group in this case
+
+Reason and engagement implication
+
+Contact client
+
+Jerome Dalisay, HR Director
+
+Initiated contact. Confirm continuing authority and role; contact alone does not make him the sole client.
+
+Intermediate clients
+
+CEO; HR team; department heads; site managers; internal facilitators; DPO
+
+Help authorize, coordinate access, supply records or organize participation. No one should control findings or identify respondents.
+
+Primary client
+
+BIFC as an organization, represented by an authorized corporate signatory and governed through an agreed steering process
+
+The organizational system and its effectiveness are the focus, not the preference of a single executive.
+
+Ultimate clients
+
+BIFC and its long-term organizational system; employees and affected workforce groups
+
+They will experience the consequences of diagnosis and any later organizational changes.
+
+Indirect clients
+
+Lender/bank; customers; suppliers; manpower agency; relevant external stakeholders
+
+They may be affected by BIFC’s performance or have legitimate contractual/operational interests, but should not direct individual findings.
+
+Unwitting clients
+
+Rank-and-file and agency workers, including Zamboanga employees, who may not know how the diagnosis could affect them
+
+They are affected even if they did not commission the work; explain purpose, consent, confidentiality and limits clearly.
+
+
+
+Stakeholders that must be represented in the map
+
+CEO Atty. Marissa Villaflor-Lim: proposed executive sponsor/signatory subject to proof of authority. COO Engr. Rody Villaflor: operational gatekeeper whose commitment is essential. Chairman Tatay Ernie and the Board: governance, informal influence and report recipients. Jerome Dalisay: contact client. CFO: budget owner and source of headcount assumptions. Kevin, VP for Business Development: portal/AI-analysis offer and potential data-governance conflict. HR Director and HR staff: records and access, but not sole custodians of raw responses. Department heads, plant managers, supervisors and employees across all five sites: data providers and affected parties. Bayanihan Workers Union (BWU) and Zamboanga’s separate union: distinct employee representatives; neither should be presumed to speak for the other. Manpower agency and agency workers: separate employment relationship and participation needs. Lender/bank: sets the coverage and acceptance condition. DPO: privacy adviser. Zamboanga plant and its workforce: essential site-level client system. Suppliers and customers: indirect stakeholders where process or quality effects are relevant.
+
+1.3 Primary Client, Signatory and Relevant Client System
+
+Primary client and contract signatory
+
+We recommend BIFC as the primary client and the CEO as the proposed management signatory, only after corporate authority is confirmed and the Board approves or acknowledges governance as required. This is preferable to naming Jerome alone: he initiated the engagement but cannot represent every site, the workforce or the lender’s scope condition. It is also preferable to treating the CEO as the personal client, because she must not control the consultants’ conclusions or obtain identifiable employee responses. The bank’s requirements should be documented as acceptance criteria, but the bank should not direct interviews or dictate findings.
+
+Relevant client system
+
+Diagnose BIFC as a whole, including all five sites and the Villaflor family-business leadership system only where family relationships affect corporate authority, communication, decision-making or organizational functioning. Excluding Zamboanga would omit an acquired plant with its own workforce and union, integration challenges and local context. Private family matters unrelated to BIFC’s work remain outside scope.
+
+Group 1 twist: Zamboanga access conflict
+
+The COO’s ‘off-limits until April’ instruction cannot be reconciled with a 1 March 2027 report deadline if the bank requires all five sites. Before full commitment, request written site access within the engagement window and explain the purpose, privacy safeguards, local-language support and production-disruption controls. Escalate through the agreed sponsor/Board governance route and ask the bank to confirm in writing whether any remote or independent local-partner method would satisfy its condition. Remote interviews and records may supplement, but must not be represented as equivalent to full site access without bank approval. If access cannot be secured and the bank does not formally revise its requirement or deadline, pause or decline the original scope rather than claim compliance falsely.
+
+1.4 BOEP Fit, Stakeholder Agendas and Go/No-Go Decision
+
+Consulting-firm fit and safeguards
+
+BOEP is a proposed local OD firm for this classroom case. Its fit must be demonstrated rather than assumed: the engagement needs organizational diagnosis, labor-relations sensitivity, privacy-safe research, manufacturing/ERP understanding and culturally appropriate multilingual fieldwork across five sites. The case does not establish that BOEP itself has all six working languages or specialist capacity. Therefore, before contracting, verify relevant credentials and capacity, disclose any limitations, and engage qualified independent local-language partners—especially for Zamboanga—under the same confidentiality rules. Do not promise language coverage or access that has not been secured.
+
+The engagement lead’s relationship as the HR Director’s former classmate and kumpare must be disclosed in writing to BIFC’s authorized governance body and the lender where appropriate. BOEP should appoint an independent lead reviewer, exclude the conflicted lead from sole control of evidence interpretation, and document conflict-management steps. If independence cannot be credibly protected, BOEP should replace the lead or decline.
+
+Likely stakeholder agendas to test
+
+Stakeholder
+
+Possible agenda / risk
+
+Response that protects independence
+
+CEO / Chairman
+
+May want harmony, control over transcripts/names, or a report that avoids family conflict.
+
+Report system patterns respectfully, using corroborated evidence; no names or raw transcripts.
+
+COO
+
+Opposes engagement and controls workforce/site access; may want Zamboanga excluded.
+
+Invite him to co-design disruption controls; document access decisions and escalate unresolved scope conflicts.
+
+Jerome / HR
+
+Wants the diagnosis to proceed; relationship with lead may influence trust.
+
+Disclose relationship, confirm role, use independent review and multiple sources.
+
+Kevin, VP Business Development
+
+May favor an ID-linked portal and AI sentiment analysis, creating re-identification/data-use risks.
+
+Decline identifiable portal and unapproved AI analysis; use data-minimized, consultant-controlled collection.
+
+CFO
+
+Budget cap and headcount assumptions may bias scope or interpretation.
+
+Show transparent scope-cost trade-offs; do not let assumed savings predetermine findings.
+
+BWU and Zamboanga union
+
+Want a seat and may boycott if excluded; may seek bargaining leverage.
+
+Consult both separately on process and safety; do not use diagnosis to bargain CBA terms or promise outcomes.
+
+Lender
+
+Requires an independent, company-wide assessment before loan drawdown.
+
+Agree objective acceptance criteria and coverage; preserve consultant control of methods and findings.
+
+Managers / employees / agency workers
+
+Managers may protect targets; workers may fear retaliation, job loss or surveillance.
+
+Voluntary participation, separate groups by power/employment status, no identifiable reporting, and a written no-retaliation rule.
+
+
+
+Decision: CONDITIONAL GO
+
+BIFC has a credible need for independent diagnosis, but BOEP should proceed only when all conditions below are met in writing:
+
+All-five-site coverage, including Zamboanga, is authorized within the engagement window—or the bank formally accepts a documented alternative or revised deadline.
+
+HR provides a verified rank-and-file roster and denominator. The interview target is at least 10% of rank-and-file employees, not automatically 10% of all 1,140 staff. If the rank-and-file denominator is not yet known, 114 is only a provisional planning floor (10% of total workforce), not proof of compliance; recalculate once verified.
+
+BIFC appoints an authorized sponsor/signatory and a neutral liaison; the steering arrangement includes appropriate management, employee-representation and privacy perspectives without giving any stakeholder control over findings.
+
+A signed agreement protects voluntary participation, confidentiality, consultant independence, no retaliation, data minimization, retention/destruction and restrictions on AI use. CEO access to names/transcripts and the ID-linked portal are not accepted.
+
+The kumpare relationship is disclosed and managed; qualified language support and independent review are secured.
+
+Scope, timeline, budget, access to records/people, union engagement and decision rights are realistic and agreed. The diagnosis is not a disguised process for choosing employees or jobs for displacement.
+
+If any essential condition fails, do not proceed under the original scope. Pause while negotiating a written scope/deadline change, partner with an independent qualified firm if that resolves capacity or conflict, or decline. The all-five-site and 10% interview conditions must not be described as satisfied without evidence.
+
+Conclusion
+
+BIFC’s presenting problem is the lender-required independent assessment; likely underlying problems include weakened performance, declining trust, leadership and decision-rights conflict, labor-relations concerns, inconsistent systems adoption, post-acquisition integration and inadequate AI governance. Weisbord’s Six-Box, Burke–Litwin and Nadler–Tushman provide complementary ways to test these hypotheses. The recommended decision is a conditional GO, with the Zamboanga access conflict and consultant independence resolved before full commitment.
+
+Source and assumptions note
+
+Source: BIFC Organizational Development Examination Case, especially pp. 2–6 and 8–12, Appendices A, C–G and the Group 1 twist. Figures and quoted statements should be checked against the supplied case before submission. Cause statements and client-type assignments are hypotheses/working classifications, not established facts. No member names were supplied, so none have been invented.
+

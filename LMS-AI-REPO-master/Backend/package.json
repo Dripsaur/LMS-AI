@@ -6,7 +6,9 @@
     "flowise-embed-react": "^3.1.6",
     "google-auth-library": "^11.0.0",
     "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.13.0",
     "multer": "^2.2.0",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.23.0"
   }
 }

@@ -113,6 +113,14 @@ app.get('/', (_req, res) => {
 
 const uploadDir = path.join(__dirname, 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
+const flowiseUploadDir = path.join(__dirname, '..', '..', 'FlowiseApp', 'uploadss');
+fs.mkdirSync(flowiseUploadDir, { recursive: true });
+// Keep previously extracted lesson text available after changing its destination.
+for (const filename of fs.readdirSync(uploadDir).filter((name) => name.toLowerCase().endsWith('.txt'))) {
+  const legacyTextPath = path.join(uploadDir, filename);
+  const flowiseTextPath = path.join(flowiseUploadDir, filename);
+  if (!fs.existsSync(flowiseTextPath)) fs.copyFileSync(legacyTextPath, flowiseTextPath);
+}
 const permittedUploadExtensions = new Set(['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.png', '.zip']);
 const upload = multer({
   storage: multer.diskStorage({
@@ -386,8 +394,15 @@ const classworkSchemaReady = pool.query(`
   .then(() => console.log('Classwork table is ready!'))
   .catch((error) => console.error('Error creating classwork table:', error));
 
-// Keep track of the instructor who created each course for role-based lists.
-const courseSchemaReady = pool.query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS teacher_id INTEGER');
+// Keep track of both the assigned instructor and the dean who created a course.
+// An instructor assignment can change, so it must not be used as the dean owner.
+const courseSchemaReady = pool.query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS teacher_id INTEGER')
+  .then(() => Promise.all([
+  // LMS account IDs may be institutional IDs containing letters.  Preserve
+  // them exactly instead of coercing them to an integer.
+  pool.query('ALTER TABLE courses ALTER COLUMN teacher_id TYPE VARCHAR(50) USING teacher_id::text'),
+  pool.query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS created_by VARCHAR(50)'),
+  ]));
 courseSchemaReady.catch((error) => console.error('Error preparing course ownership:', error));
 
 const classCommentsSchemaReady = pool.query(`
@@ -587,9 +602,9 @@ app.delete('/api/classes/unenroll', async (req, res) => {
 // DELETE /api/classes/:courseId
 app.delete('/api/classes/:courseId', async (req, res) => {
   const courseId = Number.parseInt(req.params.courseId, 10);
-  const teacherId = Number.parseInt(req.query.teacher_id, 10);
+  const teacherId = String(req.query.teacher_id || '').trim();
 
-  if (!Number.isInteger(courseId) || !Number.isInteger(teacherId)) {
+  if (!Number.isInteger(courseId) || !teacherId) {
     return res.status(400).json({ error: 'A valid course ID and teacher ID are required.' });
   }
 
@@ -609,11 +624,11 @@ app.delete('/api/classes/:courseId', async (req, res) => {
     }
     const actorResult = await client.query(
       'SELECT role FROM students WHERE student_id::text = $1 LIMIT 1',
-      [String(teacherId)]
+      [teacherId]
     );
     const actorRole = String(actorResult.rows[0]?.role || '').toLowerCase();
     const canDeleteAnyClass = ['dean', 'admin', 'superadmin'].includes(actorRole);
-    if (!canDeleteAnyClass && ownerResult.rows[0].teacher_id !== teacherId) {
+    if (!canDeleteAnyClass && String(ownerResult.rows[0].teacher_id || '') !== teacherId) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Only the assigned instructor or a dean can delete this class.' });
     }
@@ -665,9 +680,9 @@ app.delete('/api/courses/:courseId/students/:studentId', async (req, res) => {
   // Institutional student IDs can contain letters (for example, fcp33530),
   // so preserve the identifier instead of coercing it to a number.
   const studentId = String(req.params.studentId || '').trim();
-  const teacherId = Number.parseInt(req.query.teacher_id, 10);
+  const teacherId = String(req.query.teacher_id || '').trim();
 
-  if (!Number.isInteger(courseId) || !studentId || !Number.isInteger(teacherId)) {
+  if (!Number.isInteger(courseId) || !studentId || !teacherId) {
     return res.status(400).json({ error: 'A valid course ID, student ID, and teacher ID are required.' });
   }
 
@@ -678,7 +693,7 @@ app.delete('/api/courses/:courseId/students/:studentId', async (req, res) => {
       [courseId]
     );
     if (ownerResult.rowCount === 0) return res.status(404).json({ error: 'Class not found.' });
-    if (ownerResult.rows[0].teacher_id !== teacherId) {
+    if (String(ownerResult.rows[0].teacher_id || '') !== teacherId) {
       return res.status(403).json({ error: 'Only the instructor who created this class can remove students.' });
     }
 
@@ -715,6 +730,7 @@ async function createClassHandler(req, res) {
     section,
     subText,
     teacherId,
+    createdBy,
   } = req.body;
 
   const trimmedTitle = title?.trim();
@@ -724,7 +740,8 @@ async function createClassHandler(req, res) {
   const trimmedInstructor = instructor?.trim();
   const trimmedSection = section?.trim();
   const trimmedSubText = subText?.trim();
-  const assignedTeacherId = Number.parseInt(teacherId, 10);
+  const assignedTeacherId = String(teacherId || '').trim();
+  const creatorId = String(createdBy || '').trim();
 
   if (!trimmedTitle) {
     return res.status(400).json({ error: 'Class title is required.' });
@@ -733,6 +750,7 @@ async function createClassHandler(req, res) {
   let client;
 
   try {
+    await courseSchemaReady;
     client = await pool.connect();
     let generatedClassCode = generateClassCode();
     let existingCode = await client.query(
@@ -767,15 +785,16 @@ async function createClassHandler(req, res) {
     const lessonText = [metadataText, trimmedSubText].filter(Boolean).join(' | ');
 
     const courseResult = await client.query(
-      `INSERT INTO courses (code, title, class_code, status, teacher_id)
-       VALUES ($1, $2, $3, 'Active', $4)
+      `INSERT INTO courses (code, title, class_code, status, teacher_id, created_by)
+       VALUES ($1, $2, $3, 'Active', $4, $5)
        RETURNING *`,
       // Creating a class only creates the class record.  Students (and staff
       // joining another class) are added to enrollments exclusively through
       // the join endpoints.  An omitted instructor must remain unassigned;
       // never fall back to a real account such as ID 1.
       [normalizedCourseCode, trimmedTitle, generatedClassCode,
-        Number.isInteger(assignedTeacherId) ? assignedTeacherId : null]
+        assignedTeacherId || null,
+        creatorId || null]
     );
     const courseRecord = courseResult.rows[0];
 
@@ -810,7 +829,8 @@ app.post('/api/classes/create', createClassHandler);
 app.post('/api/courses', createClassHandler);
 
 // GET /api/courses?role=dean|teacher|student&user_id=1
-// Deans see all classes; teachers see assigned and joined classes; students see joined classes.
+// Deans see only the classes they created; teachers see assigned and joined
+// classes; students see joined classes. Administrators retain the global view.
 app.get('/api/courses', async (req, res) => {
   const role = String(req.query.role || 'student').toLowerCase();
   const userId = String(req.query.user_id || '').trim();
@@ -821,7 +841,7 @@ app.get('/api/courses', async (req, res) => {
 
   try {
     await courseSchemaReady;
-    if (role === 'dean' || role === 'admin' || role === 'superadmin') {
+    if (role === 'admin' || role === 'superadmin') {
       const result = await pool.query(
         `SELECT c.*, COALESCE(l.sub_text, '') AS sub_text,
                 COALESCE(NULLIF(TRIM(instructor.name), ''), '') AS instructor_name
@@ -829,6 +849,20 @@ app.get('/api/courses', async (req, res) => {
          LEFT JOIN lessons l ON l.course_id = c.course_id
          LEFT JOIN students instructor ON instructor.student_id::text = c.teacher_id::text
          ORDER BY c.course_id DESC`
+      );
+      return res.json(result.rows);
+    }
+
+    if (role === 'dean') {
+      const result = await pool.query(
+        `SELECT c.*, COALESCE(l.sub_text, '') AS sub_text,
+                COALESCE(NULLIF(TRIM(instructor.name), ''), '') AS instructor_name
+         FROM courses c
+         LEFT JOIN lessons l ON l.course_id = c.course_id
+         LEFT JOIN students instructor ON instructor.student_id::text = c.teacher_id::text
+         WHERE c.created_by::text = $1::text
+         ORDER BY c.course_id DESC`,
+        [userId]
       );
       return res.json(result.rows);
     }
@@ -1357,6 +1391,12 @@ app.post('/api/courses/:courseId/classwork', upload.single('file'), async (req, 
   const courseId = Number.parseInt(req.params.courseId, 10);
   const { type, title, description, file_link: fileLink, dueDate, totalPoints } = req.body || {};
   const documentUrl = req.file ? `/uploads/${req.file.filename}` : String(fileLink || '').trim();
+if (req.file) {
+  console.log('[AI SYNC] Uploaded file:', req.file.path);
+  await translateForAI(req.file.path);
+} else {
+  console.log('[AI SYNC] No file received by classwork route.');
+}
   const workDescription = String(description || '').trim();
 
   if (!Number.isInteger(courseId)) {
@@ -1800,3 +1840,98 @@ app.post('/api/pages/resources', upload.single('file'), async (req, res) => {
 app.listen(5000, () => {
   console.log('Server running on http://localhost:5000');
 });
+
+
+const mammoth = require('mammoth');
+const pdf = require('pdf-parse');
+
+// --- AUTO TRANSLATE FOR AI ---
+async function translateForAI(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    const txtPath = path.join(flowiseUploadDir, `${path.parse(filePath).name}.txt`);
+
+    try {
+        if (ext === '.docx' || ext === '.doc') {
+            const result = await mammoth.extractRawText({ path: filePath });
+            fs.writeFileSync(txtPath, result.value, 'utf8');
+            console.log(` Translated Word doc to: ${txtPath}`);
+        } 
+        else if (ext === '.pdf') {
+            const dataBuffer = fs.readFileSync(filePath);
+            const data = await pdf(dataBuffer);
+            fs.writeFileSync(txtPath, data.text, 'utf8');
+            console.log(` Translated PDF to: ${txtPath}`);
+        }
+    } catch (err) {
+        console.error('Translation failed:', err.message);
+    }
+}
+
+
+
+app.get('/api/flowise/course-materials/:courseId', async (req, res) => {
+  // Authenticate the Flowise integration.
+  const apiKey = process.env.FLOWISE_SYNC_API_KEY;
+  const providedKey = req.get('x-api-key');
+
+  if (!apiKey || providedKey !== apiKey) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const courseId = Number.parseInt(req.params.courseId, 10);
+
+  if (!Number.isInteger(courseId) || courseId <= 0) {
+    return res.status(400).json({ error: 'Invalid course ID' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT material_id, course_id, title, description, pdf_url
+       FROM class_materials
+       WHERE course_id = $1
+       ORDER BY material_id DESC`,
+      [courseId]
+    );
+
+    const documents = [];
+
+    for (const material of result.rows) {
+      if (!material.pdf_url) continue;
+
+      // Only accept filenames stored in this application's uploads folder.
+      const filename = path.basename(material.pdf_url);
+      const txtFilename = `${path.parse(filename).name}.txt`;
+      const txtPath = path.join(flowiseUploadDir, txtFilename);
+
+      // Verify the resolved path stays inside Flowise's uploads directory.
+      if (path.dirname(txtPath) !== path.resolve(flowiseUploadDir)) continue;
+
+      if (!fs.existsSync(txtPath)) continue;
+
+      const content = fs.readFileSync(txtPath, 'utf8').trim();
+      if (!content) continue;
+
+      documents.push({
+        pageContent: content,
+        metadata: {
+          courseId: material.course_id,
+          materialId: material.material_id,
+          title: material.title,
+          description: material.description || ''
+        }
+      });
+    }
+
+    return res.json({ courseId, documents });
+  } catch (error) {
+    console.error('Flowise materials endpoint error:', error.message);
+    return res.status(500).json({
+      error: 'Failed to retrieve course materials'
+    });
+  }
+});
+
+
+// Call this function right after your file upload saves:
+// translateForAI(req.file.path); 
+// ---------------------------------
