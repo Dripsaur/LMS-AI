@@ -15,7 +15,11 @@ const app = express();
 // ngrok/TLS terminates in front of this server. Trust its forwarded protocol so
 // Office for the web receives the public HTTPS document URL, not localhost/HTTP.
 app.set('trust proxy', 1);
-app.use(cors());
+//app.use(cors());
+   app.use(cors({
+       origin: '*',
+       credentials: true
+   }));
 app.use(express.json());
 
 const chatbotIdentitySecret = process.env.CHATBOT_IDENTITY_SECRET;
