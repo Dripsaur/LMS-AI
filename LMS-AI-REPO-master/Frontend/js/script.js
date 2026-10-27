@@ -1,3 +1,5 @@
+const API_URL = 'https://imcc-lms.onrender.com'; // Put your actual Render URL here
+
 function updateWelcomeGreeting(user = {}) {
   const heading = document.getElementById('greetingHeading');
   if (!heading) return;
