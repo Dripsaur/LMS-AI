@@ -1,4 +1,6 @@
 const API_URL = 'https://imcc-lms.onrender.com'; // Put your actual Render URL here
+let activeClassCreationRequest = null;
+let notificationBadgePoll = null;
 
 function updateWelcomeGreeting(user = {}) {
   const heading = document.getElementById('greetingHeading');
@@ -7,7 +9,40 @@ function updateWelcomeGreeting(user = {}) {
   const name = role === 'admin'
     ? 'Admin'
     : String(user.name || user.first_name || '').trim();
-  heading.textContent = `WELCOME TO IMCC LMS PORTAL${name ? `, ${name.toUpperCase()}` : ''}`;
+  heading.textContent = `Welcome back${name ? `, ${name}` : ''}.`;
+  const displayName = name || 'IMCC User';
+  const nameElement = document.getElementById('signedInName');
+  if (nameElement) nameElement.textContent = displayName;
+  const avatar = document.getElementById('profileAvatar');
+  if (avatar) {
+    const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('');
+    avatar.textContent = initials.toUpperCase() || 'IM';
+  }
+}
+
+async function refreshNotificationBadge() {
+  const userId = getCurrentUserId();
+  const bell = document.getElementById('notificationBtn');
+  if (!userId || !bell) return;
+  try {
+    const response = await fetch(`/api/notifications/dashboard?user_id=${encodeURIComponent(userId)}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const alerts = [
+      ...(Array.isArray(data.priorityAlerts) ? data.priorityAlerts : []),
+      ...(Array.isArray(data.systemAlerts) ? data.systemAlerts : [])
+    ];
+    const readKey = `lms_read_notifications_${userId}`;
+    let readIds = [];
+    try { readIds = JSON.parse(localStorage.getItem(readKey) || '[]'); } catch (_) { readIds = []; }
+    const unread = alerts.some((item) => {
+      const id = String(item.notification_id ?? item.id ?? `${item.title || ''}:${item.created_at || ''}`);
+      return !readIds.includes(id);
+    });
+    bell.classList.toggle('has-unread', unread);
+  } catch (error) {
+    console.warn('Could not refresh notification badge:', error.message);
+  }
 }
 
 function syncUserSessionUI() {
@@ -34,8 +69,8 @@ function syncUserSessionUI() {
   const adminControlPanelBtn = document.getElementById('adminControlPanelBtn');
   const standardNavButtons = document.querySelectorAll('.nav-btn:not(#adminControlPanelBtn)');
   document.body.classList.toggle('joined-class-view', currentRole !== 'dean');
-  if (createClassBtn) createClassBtn.hidden = currentRole !== 'dean' || isAdmin;
-  if (joinClassBtn) joinClassBtn.hidden = currentRole === 'dean' || isAdmin;
+  if (createClassBtn) createClassBtn.hidden = !['dean', 'teacher', 'instructor'].includes(String(currentRole).toLowerCase()) || isAdmin;
+  if (joinClassBtn) joinClassBtn.hidden = ['dean', 'teacher', 'instructor', 'admin', 'superadmin'].includes(String(currentRole).toLowerCase());
   if (addWorkBtn) addWorkBtn.hidden = !canManageWork;
   standardNavButtons.forEach((button) => { button.hidden = isAdmin; });
   if (adminControlPanelBtn) {
@@ -54,6 +89,9 @@ function syncUserSessionUI() {
   }
   if (typeof loadDashboardCourses === 'function') loadDashboardCourses();
   if (typeof loadAssignmentsPage === 'function') loadAssignmentsPage();
+  refreshNotificationBadge();
+  if (!notificationBadgePoll) notificationBadgePoll = window.setInterval(refreshNotificationBadge, 60000);
+  if (String(currentRole).toLowerCase() === 'dean' && typeof loadPendingClassRequests === 'function') loadPendingClassRequests();
 }
 
 function showConfirmationDialog({ title, message, confirmLabel = 'Confirm' }) {
@@ -103,17 +141,50 @@ function showConfirmationDialog({ title, message, confirmLabel = 'Confirm' }) {
   });
 }
 
-function showToast(message) {
+function showToast(message, { type = 'success' } = {}) {
   document.getElementById('appToast')?.remove();
   const toast = document.createElement('div');
   toast.id = 'appToast';
-  toast.className = 'app-toast';
+  toast.className = `app-toast${type === 'error' ? ' app-toast-error' : ''}`;
   toast.setAttribute('role', 'status');
   toast.setAttribute('aria-live', 'polite');
-  toast.innerHTML = '<span class="app-toast-icon" aria-hidden="true">✓</span><span></span>';
+  toast.innerHTML = `<span class="app-toast-icon" aria-hidden="true">${type === 'error' ? '!' : '✓'}</span><span></span>`;
   toast.querySelector('span:last-child').textContent = message;
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 2600);
+}
+
+function showActionConfirmationToast({ title = 'Delete class work?', message, confirmLabel = 'Delete' }) {
+  return new Promise((resolve) => {
+    document.getElementById('appDeleteConfirmToast')?.remove();
+    const toast = document.createElement('div');
+    toast.id = 'appDeleteConfirmToast';
+    toast.className = 'app-delete-confirm-toast';
+    toast.setAttribute('role', 'alertdialog');
+    toast.setAttribute('aria-modal', 'false');
+    toast.innerHTML = '<div class="app-delete-confirm-copy"><strong></strong><span></span></div><div class="app-delete-confirm-actions"><button type="button" class="app-delete-cancel">Cancel</button><button type="button" class="app-delete-confirm"></button></div>';
+    toast.querySelector('strong').textContent = title;
+    toast.querySelector('span').textContent = message;
+    const cancelButton = toast.querySelector('.app-delete-cancel');
+    const confirmButton = toast.querySelector('.app-delete-confirm');
+    confirmButton.textContent = confirmLabel;
+    let settled = false;
+    const close = (confirmed) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKeyDown);
+      toast.remove();
+      resolve(confirmed);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') close(false);
+    };
+    cancelButton.addEventListener('click', () => close(false));
+    confirmButton.addEventListener('click', () => close(true));
+    document.addEventListener('keydown', onKeyDown);
+    document.body.appendChild(toast);
+    cancelButton.focus();
+  });
 }
 
 async function createNewUserAccount() {
@@ -409,11 +480,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const navButtons = document.querySelectorAll('.nav-btn');
   const contentSections = document.querySelectorAll('.content-section');
+  const classesDashboardActions = document.getElementById('classesDashboardActions');
+  const updateClassesDashboardActions = (sectionId) => {
+    if (classesDashboardActions) classesDashboardActions.hidden = sectionId !== 'classes';
+  };
+  updateClassesDashboardActions(document.querySelector('.content-section.active')?.id || '');
 
   const activateSection = (targetId) => {
     contentSections.forEach((section) => {
       section.classList.toggle('active', section.id === targetId);
     });
+    updateClassesDashboardActions(targetId);
   };
 
   const classSearch = document.getElementById('classSearchInput');
@@ -455,6 +532,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const target = button.getAttribute('data-target');
       activateSection(target);
       if (target === 'assignments') loadAssignmentsPage();
+      if (target === 'classes' && String(localStorage.getItem('lms_user_role') || '').toLowerCase() === 'dean') loadPendingClassRequests();
       if (target === 'calendar') renderMonthlyCalendarPro({ role: localStorage.getItem('lms_user_role') || 'student', userId: getCurrentUserId() }, document.getElementById('aaCalendarRoot'));
       if (target === 'resources') renderResourcesPage({ role: localStorage.getItem('lms_user_role') || 'student', userId: getCurrentUserId() }, document.getElementById('aaResourcesRoot'));
     });
@@ -580,12 +658,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const classesContainer = document.querySelector('#classes .course-list');
 
   const switchRole = (selectedRole) => {
-    const role = ['dean', 'teacher', 'student'].includes(selectedRole) ? selectedRole : 'student';
+    const role = ['dean', 'teacher', 'instructor', 'student'].includes(selectedRole) ? selectedRole : 'student';
     const isDean = role === 'dean';
     localStorage.setItem('lms_user_role', role);
     document.body.classList.toggle('joined-class-view', !isDean);
-    if (createClassBtn) createClassBtn.hidden = !isDean;
-    if (joinClassBtn) joinClassBtn.hidden = isDean || role === 'admin';
+    if (createClassBtn) createClassBtn.hidden = !['dean', 'teacher', 'instructor'].includes(role);
+    if (joinClassBtn) joinClassBtn.hidden = isDean || ['teacher', 'instructor', 'admin', 'superadmin'].includes(String(role).toLowerCase());
     const addWorkBtn = document.getElementById('addWorkBtn');
     if (addWorkBtn) addWorkBtn.hidden = !['dean', 'teacher'].includes(role);
     loadDashboardCourses();
@@ -615,6 +693,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (createClassFormGroup) createClassFormGroup.hidden = false;
     if (createClassSuccessBox) createClassSuccessBox.hidden = true;
+    const codeGroup = document.getElementById('createClassCodeGroup');
+    if (codeGroup) codeGroup.hidden = false;
+    const successTitle = document.getElementById('createClassSuccessTitle');
+    const successMessage = document.getElementById('createClassSuccessMessage');
+    if (successTitle) successTitle.textContent = 'Class Created Successfully!';
+    if (successMessage) successMessage.textContent = 'Share this join code with your students:';
+    const copyButton = document.getElementById('copyCreateCodeBtn');
+    if (copyButton) copyButton.hidden = false;
+    const deanSelect = document.getElementById('classApprovingDeanSelect');
+    if (deanSelect) deanSelect.value = '';
     if (createClassSubmit) {
       createClassSubmit.textContent = 'Create Class';
       createClassSubmit.disabled = false;
@@ -719,6 +807,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const detailClassCode = document.getElementById('detailClassCode');
   const copyDetailCodeBtn = document.getElementById('copyDetailCode');
   const classMembersBtn = document.getElementById('classMembersBtn');
+  copyDetailCodeBtn?.closest('.form-note')?.after(classMembersBtn);
   const detailMaterialsList = document.getElementById('detailMaterialsList');
   const detailResourcesList = document.getElementById('detailResourcesList');
   const detailAnnouncementsList = document.getElementById('detailAnnouncementsList');
@@ -756,11 +845,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const submissionFileList = document.getElementById('submissionFileList');
   const submissionFileInput = document.getElementById('submissionFileInput');
   const addSubmissionFileBtn = document.getElementById('addSubmissionFileBtn');
+  const submissionAddMenu = document.getElementById('submissionAddMenu');
+  const submissionLinkForm = document.getElementById('submissionLinkForm');
+  const submissionLinkUrl = document.getElementById('submissionLinkUrl');
+  const saveSubmissionLinkBtn = document.getElementById('saveSubmissionLinkBtn');
+  const cancelSubmissionLinkBtn = document.getElementById('cancelSubmissionLinkBtn');
   const submitWorkBtn = document.getElementById('submitWorkBtn');
   const submissionReviewPanel = document.getElementById('submissionReviewPanel');
   const submissionReviewList = document.getElementById('submissionReviewList');
   const submissionGradeNote = document.getElementById('submissionGradeNote');
   const classCommentsList = document.getElementById('classCommentsList');
+  const classCommentsHeading = document.getElementById('classCommentsHeading');
   const classCommentForm = document.getElementById('classCommentForm');
   const classCommentInput = document.getElementById('classCommentInput');
   const classCommentMessage = document.getElementById('classCommentMessage');
@@ -778,14 +873,17 @@ document.addEventListener('DOMContentLoaded', () => {
     classCommentMessage.classList.toggle('error', isError);
   };
 
-  const loadClassComments = async (courseId) => {
-    if (!classCommentsList) return;
+  const loadClassComments = async (courseId, workItem) => {
+    if (!classCommentsList || !workItem) return;
+    const workType = workItem.dbTable;
+    const workId = workItem.id;
     classCommentsList.innerHTML = '<p class="class-comments-empty">Loading comments...</p>';
     try {
-      const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/comments`);
+      const params = new URLSearchParams({ work_type: workType, work_id: String(workId) });
+      const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/comments?${params}`);
       const comments = await response.json();
       if (!response.ok) throw new Error(comments.error || 'Unable to load comments.');
-      if (activeCourseId !== courseId) return;
+      if (activeCourseId !== courseId || selectedWorkItem?.dbTable !== workType || selectedWorkItem?.id !== workId) return;
       classCommentsList.innerHTML = '';
       if (!comments.length) {
         classCommentsList.innerHTML = '<p class="class-comments-empty">No comments yet. Start the conversation.</p>';
@@ -812,26 +910,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
   classCommentForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!activeCourseId || !classCommentInput) return;
+    if (!activeCourseId || !selectedWorkItem || !classCommentInput) return;
+    const courseId = activeCourseId;
+    const workItem = selectedWorkItem;
     const content = classCommentInput.value.trim();
     if (!content) return setClassCommentMessage('Write a comment before posting.', true);
     const submitButton = classCommentForm.querySelector('button[type="submit"]');
     submitButton.disabled = true;
     setClassCommentMessage('Posting...');
     try {
-      const response = await fetch(`/api/courses/${encodeURIComponent(activeCourseId)}/comments`, {
+      const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/comments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('lms_auth_token') || ''}`,
         },
-        body: JSON.stringify({ content, author_id: getCurrentUserId() }),
+        body: JSON.stringify({
+          content,
+          author_id: getCurrentUserId(),
+          work_type: workItem.dbTable,
+          work_id: workItem.id,
+        }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Unable to post the comment.');
       classCommentInput.value = '';
       setClassCommentMessage('Comment posted.');
-      await loadClassComments(activeCourseId);
+      await loadClassComments(courseId, workItem);
     } catch (error) {
       setClassCommentMessage(error.message || 'Unable to post the comment.', true);
     } finally {
@@ -861,14 +966,64 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', onKeyDown);
 
     try {
-      const response = await fetch(`/api/courses/${encodeURIComponent(activeCourseId)}/members`);
+      const session = JSON.parse(localStorage.getItem('lms_current_user') || '{}');
+      const userId = String(session.student_id || session.user_id || getCurrentUserId() || '');
+      const response = await fetch(`/api/courses/${encodeURIComponent(activeCourseId)}/members?user_id=${encodeURIComponent(userId)}`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Unable to load class members.');
       const members = Array.isArray(result.members) ? result.members : [];
-      overlay.querySelector('.class-members-subtitle').textContent = `${members.length} member${members.length === 1 ? '' : 's'} enrolled in ${detailClassTitle?.textContent || 'this class'}.`;
-      overlay.querySelector('.class-members-list').innerHTML = members.length
-        ? members.map((member, index) => `<div class="class-member-row"><span class="class-member-avatar" aria-hidden="true">${escapeHtml(String(member.student_name || '?').trim().charAt(0).toUpperCase())}</span><div><strong>${escapeHtml(member.student_name || `Student #${member.student_id}`)}</strong><small>${member.year_level ? escapeHtml(member.year_level) : 'Class member'}</small></div><span class="class-member-number">${index + 1}</span></div>`).join('')
+      const requests = Array.isArray(result.requests) ? result.requests : [];
+      const canApprove = ['dean', 'teacher', 'instructor'].includes(String(session.role || '').toLowerCase());
+      overlay.querySelector('.class-members-subtitle').textContent = `${members.length} enrolled student${members.length === 1 ? '' : 's'} in ${detailClassTitle?.textContent || 'this class'}.`;
+      const memberRows = members.length
+        ? members.map((member, index) => `<div class="class-member-row"><span class="class-member-avatar" aria-hidden="true">${escapeHtml(String(member.student_name || '?').trim().charAt(0).toUpperCase())}</span><div><strong>${escapeHtml(member.student_name || `Student #${member.student_id}`)}</strong><small>${member.year_level ? escapeHtml(member.year_level) : 'Class member'}</small></div>${canApprove ? `<button type="button" class="class-member-remove" data-member-remove="${escapeHtml(member.student_id)}" data-member-name="${escapeHtml(member.student_name || `Student #${member.student_id}`)}">Remove</button>` : `<span class="class-member-number">${index + 1}</span>`}</div>`).join('')
         : '<p class="class-members-empty">No students have joined this class yet.</p>';
+      const requestRows = requests.length
+        ? requests.map((request) => `<div class="class-member-row class-join-request"><span class="class-member-avatar" aria-hidden="true">${escapeHtml(String(request.student_name || '?').trim().charAt(0).toUpperCase())}</span><div><strong>${escapeHtml(request.student_name || `Student #${request.student_id}`)}</strong><small>${request.year_level ? escapeHtml(request.year_level) : 'Awaiting approval'}</small></div>${canApprove ? `<div class="class-request-actions"><button type="button" class="class-request-approve" data-request-action="approve" data-student-id="${escapeHtml(request.student_id)}">Approve</button><button type="button" class="class-request-delete" data-request-action="delete" data-student-id="${escapeHtml(request.student_id)}">Delete</button></div>` : '<span class="class-request-pending">Pending</span>'}</div>`).join('')
+        : '<p class="class-members-empty">No students are waiting for approval.</p>';
+      overlay.querySelector('.class-members-list').innerHTML = `${canApprove ? `<h3 class="class-members-section-title">Join requests <span>${requests.length}</span></h3>${requestRows}` : ''}<h3 class="class-members-section-title">Enrolled students</h3>${memberRows}`;
+      overlay.querySelectorAll('[data-member-remove]').forEach((button) => button.addEventListener('click', async () => {
+        const studentId = button.dataset.memberRemove;
+        const studentName = button.dataset.memberName || `student ${studentId}`;
+        const confirmed = await showConfirmationDialog({
+          title: 'Remove student from class?',
+          message: `${studentName} will lose access to this class. Their submitted work and grades will be retained.`,
+          confirmLabel: 'Remove student',
+        });
+        if (!confirmed) return;
+        button.disabled = true;
+        try {
+          const removeResponse = await fetch(`/api/courses/${encodeURIComponent(activeCourseId)}/students/${encodeURIComponent(studentId)}?teacher_id=${encodeURIComponent(userId)}`, { method: 'DELETE' });
+          const removeResult = await removeResponse.json().catch(() => ({}));
+          if (!removeResponse.ok) throw new Error(removeResult.error || 'Unable to remove student.');
+          await openClassMembers();
+          const classRecordRoot = document.getElementById('crRoot');
+          if (classRecordRoot && !classRecordView?.hidden) await renderClassRecordPro(activeCourseId, { role: session.role, userId }, classRecordRoot, detailClassTitle?.textContent);
+          showToast(`${studentName} was removed from the class.`);
+        } catch (error) {
+          button.disabled = false;
+          window.alert(error.message || 'Unable to remove student.');
+        }
+      }));
+      overlay.querySelectorAll('[data-request-action]').forEach((button) => button.addEventListener('click', async () => {
+        const action = button.dataset.requestAction;
+        const studentId = button.dataset.studentId;
+        const endpoint = `/api/courses/${encodeURIComponent(activeCourseId)}/join-requests/${encodeURIComponent(studentId)}`;
+        button.disabled = true;
+        try {
+          const actionResponse = await fetch(action === 'approve' ? `${endpoint}/approve` : `${endpoint}?user_id=${encodeURIComponent(userId)}`, {
+            method: action === 'approve' ? 'POST' : 'DELETE',
+            ...(action === 'approve' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId }) } : {}),
+          });
+          const actionResult = await actionResponse.json();
+          if (!actionResponse.ok) throw new Error(actionResult.error || 'Unable to update join request.');
+          await openClassMembers();
+          if (action === 'approve') await fetchDashboardData(getCurrentUserId());
+        } catch (error) {
+          button.disabled = false;
+          window.alert(error.message || 'Unable to update join request.');
+        }
+      }));
     } catch (error) {
       overlay.querySelector('.class-members-subtitle').textContent = error.message || 'Unable to load class members.';
     }
@@ -917,10 +1072,11 @@ document.addEventListener('DOMContentLoaded', () => {
     submitWorkBtn.textContent = state.submitted ? 'Unsubmit' : 'Submit';
     submitWorkBtn.classList.toggle('unsubmit', state.submitted);
     addSubmissionFileBtn.hidden = state.submitted;
+    if (state.submitted && submissionAddMenu) submissionAddMenu.hidden = true;
 
     submissionFileList.innerHTML = '';
-    const fileName = state.fileName || state.file?.name;
-    if (!fileName) {
+    const fileName = state.fileName || state.file?.name || state.linkTitle;
+    if (!fileName && !state.submissionUrl) {
       const empty = document.createElement('div');
       empty.className = 'submission-empty';
       empty.textContent = 'No work added yet';
@@ -932,15 +1088,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const fileLabel = document.createElement('span');
     fileLabel.className = 'submission-file-name';
     fileLabel.textContent = `📄 ${fileName}`;
-    fileRow.appendChild(fileLabel);
+    if (state.submissionUrl) {
+      const link = document.createElement('a');
+      link.className = 'submission-file-link';
+      link.href = state.submissionUrl;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = fileName || 'Open submitted link';
+      fileRow.appendChild(link);
+    } else {
+      fileRow.appendChild(fileLabel);
+    }
     if (!state.submitted) {
       const removeButton = document.createElement('button');
       removeButton.className = 'submission-remove';
       removeButton.type = 'button';
-      removeButton.setAttribute('aria-label', 'Remove attached file');
+      removeButton.setAttribute('aria-label', 'Remove attached work');
       removeButton.textContent = '×';
       removeButton.addEventListener('click', () => {
-        submissionStates.set(item.id, { ...state, file: null, fileName: '' });
+        submissionStates.set(item.id, { ...state, file: null, fileName: '', linkTitle: '', submissionUrl: '', submissionKind: '' });
         if (submissionFileInput) submissionFileInput.value = '';
         renderSubmissionPanel(item);
       });
@@ -959,6 +1125,9 @@ document.addEventListener('DOMContentLoaded', () => {
       submissionStates.set(item.id, {
         ...current,
         fileName: result.submission.file_name,
+        linkTitle: result.submission.submission_url ? result.submission.file_name : '',
+        submissionUrl: result.submission.submission_url || '',
+        submissionKind: result.submission.submission_kind || '',
         submitted: true,
         score: result.submission.score,
         feedback: result.submission.feedback || '',
@@ -999,7 +1168,7 @@ document.addEventListener('DOMContentLoaded', () => {
         timestamp.textContent = `Submitted ${new Date(submission.submitted_at).toLocaleString()}`;
         details.append(student, timestamp);
         const link = document.createElement('a');
-        link.href = submission.file_path;
+        link.href = submission.submission_url || submission.file_path;
         link.target = '_blank';
         link.rel = 'noopener';
         link.textContent = submission.file_name || 'Open file';
@@ -1055,6 +1224,7 @@ document.addEventListener('DOMContentLoaded', () => {
     contentSections.forEach((section) => {
       section.classList.toggle('active', section.id === sectionId);
     });
+    updateClassesDashboardActions(sectionId);
   };
 
   const switchToStreamView = () => {
@@ -1163,6 +1333,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const fileContainer = document.getElementById('detailFileContainer');
     const itemType = String(item.type || 'Lesson').toLowerCase();
     selectedWorkItem = item;
+    if (submissionAddMenu) submissionAddMenu.hidden = true;
+    if (submissionLinkForm) submissionLinkForm.hidden = true;
+    if (classCommentsHeading) classCommentsHeading.textContent = `Comments on this ${item.type || 'class work'}`;
+    setClassCommentMessage();
+    if (classCommentInput) classCommentInput.value = '';
+    loadClassComments(activeCourseId, item);
     renderSubmissionPanel(item);
     loadStudentSubmission(item);
     loadSubmissionReviews(item);
@@ -1220,20 +1396,80 @@ document.addEventListener('DOMContentLoaded', () => {
     scrollToClassView(classRecordView);
   }));
   exportClassRecordBtn?.addEventListener('click', exportCurrentClassRecord);
-  addSubmissionFileBtn?.addEventListener('click', () => submissionFileInput?.click());
+  addSubmissionFileBtn?.addEventListener('click', () => {
+    if (submissionLinkForm) submissionLinkForm.hidden = true;
+    if (submissionAddMenu) submissionAddMenu.hidden = !submissionAddMenu.hidden;
+  });
+  submissionAddMenu?.querySelectorAll('[data-submission-method]').forEach((option) => option.addEventListener('click', () => {
+    const method = option.dataset.submissionMethod;
+    submissionAddMenu.hidden = true;
+    if (method === 'upload') {
+      submissionFileInput?.click();
+      return;
+    }
+    if (method === 'link') {
+      if (submissionLinkForm && submissionLinkUrl) {
+        submissionLinkForm.hidden = false;
+        submissionLinkUrl.value = '';
+        submissionLinkUrl.focus();
+      }
+      return;
+    }
+  }));
+  cancelSubmissionLinkBtn?.addEventListener('click', () => {
+    if (submissionLinkForm) submissionLinkForm.hidden = true;
+    if (submissionLinkUrl) submissionLinkUrl.value = '';
+  });
+  saveSubmissionLinkBtn?.addEventListener('click', () => {
+    if (!selectedWorkItem || !submissionLinkUrl) return;
+    const rawUrl = submissionLinkUrl.value.trim();
+    if (!rawUrl) return window.alert('Paste a link before attaching it.');
+    let parsedUrl = null;
+    const isInternalPath = rawUrl.startsWith('/') && !rawUrl.startsWith('//');
+    try { parsedUrl = new URL(rawUrl, window.location.origin); } catch (_) { /* Invalid URL. */ }
+    if (!isInternalPath && (!parsedUrl || !['http:', 'https:'].includes(parsedUrl.protocol))) {
+      return window.alert('Use an internal LMS path or a valid http:// or https:// link.');
+    }
+    const submissionUrl = isInternalPath ? rawUrl : parsedUrl.href;
+    let linkTitle = parsedUrl.hostname;
+    if (isInternalPath) {
+      const finalPathPart = rawUrl.split(/[?#]/)[0].split('/').filter(Boolean).pop() || 'Internal LMS link';
+      try { linkTitle = decodeURIComponent(finalPathPart); } catch (_) { linkTitle = finalPathPart; }
+    }
+    const current = submissionStates.get(selectedWorkItem.id) || { submitted: false };
+    submissionStates.set(selectedWorkItem.id, {
+      ...current,
+      file: null,
+      fileName: '',
+      linkTitle: linkTitle.slice(0, 200),
+      submissionUrl,
+      submissionKind: 'link',
+    });
+    if (submissionFileInput) submissionFileInput.value = '';
+    if (submissionLinkForm) submissionLinkForm.hidden = true;
+    renderSubmissionPanel(selectedWorkItem);
+  });
   submissionFileInput?.addEventListener('change', () => {
     const file = submissionFileInput.files?.[0];
     if (!file || !selectedWorkItem) return;
     const current = submissionStates.get(selectedWorkItem.id) || { submitted: false };
-    submissionStates.set(selectedWorkItem.id, { ...current, file, fileName: file.name });
+    submissionStates.set(selectedWorkItem.id, { ...current, file, fileName: file.name, linkTitle: '', submissionUrl: '', submissionKind: '' });
     renderSubmissionPanel(selectedWorkItem);
   });
   submitWorkBtn?.addEventListener('click', async () => {
     if (!selectedWorkItem) return;
     const current = submissionStates.get(selectedWorkItem.id) || { file: null, submitted: false };
-    if (!current.submitted && !current.file) {
-      window.alert('Please add a file before submitting your work.');
+    if (!current.submitted && !current.file && !current.submissionUrl) {
+      window.alert('Please add a file or link before submitting your work.');
       return;
+    }
+    if (!current.submitted) {
+      const confirmed = await showConfirmationDialog({
+        title: 'Submit this assignment?',
+        message: 'Please confirm that your work is ready to be submitted.',
+        confirmLabel: 'Submit assignment',
+      });
+      if (!confirmed) return;
     }
     submitWorkBtn.disabled = true;
     try {
@@ -1243,15 +1479,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Unable to unsubmit your work.');
-        submissionStates.set(selectedWorkItem.id, { ...current, file: null, fileName: '', submitted: false, score: null, feedback: '' });
+        submissionStates.set(selectedWorkItem.id, { ...current, file: null, fileName: '', linkTitle: '', submissionUrl: '', submissionKind: '', submitted: false, score: null, feedback: '' });
       } else {
-        const formData = new FormData();
-        formData.append('student_id', getCurrentUserId());
-        formData.append('file', current.file);
-        const response = await fetch(`/api/assignments/${selectedWorkItem.id}/submission`, {
-          method: 'POST',
-          body: formData,
-        });
+        let requestOptions;
+        if (current.file) {
+          const formData = new FormData();
+          formData.append('student_id', getCurrentUserId());
+          formData.append('file', current.file);
+          requestOptions = { method: 'POST', body: formData };
+        } else {
+          requestOptions = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              student_id: getCurrentUserId(),
+              submission_url: current.submissionUrl,
+              submission_kind: current.submissionKind,
+              file_name: current.linkTitle,
+            }),
+          };
+        }
+        const response = await fetch(`/api/assignments/${selectedWorkItem.id}/submission`, requestOptions);
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Unable to submit your work.');
         submissionStates.set(selectedWorkItem.id, { ...current, submitted: true });
@@ -1388,7 +1636,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       deleteButton.addEventListener('click', async (event) => {
         event.stopPropagation();
-        if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`)) return;
+        menu.hidden = true;
+        menuButton.setAttribute('aria-expanded', 'false');
+        if (!await showActionConfirmationToast({ message: `Delete "${item.title}"? This cannot be undone.` })) return;
         deleteButton.disabled = true;
         try {
           const response = await fetch(`/api/${item.dbTable}/${item.id}`, { method: 'DELETE' });
@@ -1397,7 +1647,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const activeCard = document.querySelector(`.course-card[data-course-id="${activeCourseId}"]`);
           if (activeCard) await openCourseDetail(activeCard);
         } catch (error) {
-          window.alert(error.message || 'Failed to delete class work.');
+          showToast(error.message || 'Failed to delete class work.');
           deleteButton.disabled = false;
         }
       });
@@ -1468,7 +1718,6 @@ document.addEventListener('DOMContentLoaded', () => {
     activeCourseId = courseId;
     setClassCommentMessage();
     if (classCommentInput) classCommentInput.value = '';
-    loadClassComments(courseId);
     if (tabRecordBtn) tabRecordBtn.hidden = !canManageClassWork();
 
     const fillDetailList = (listElement, items, emptyMessage) => {
@@ -1715,6 +1964,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (!activeCourseId) return;
 
+    const workTitleField = document.getElementById('workTitle');
+    if (!workTitleField?.value.trim()) {
+      workTitleField?.classList.add('required-missing');
+      workTitleField?.setAttribute('aria-invalid', 'true');
+      if (uploadFormMessage) {
+        uploadFormMessage.textContent = 'Please enter a title for this class work.';
+        uploadFormMessage.classList.add('error');
+      }
+      workTitleField?.focus();
+      return;
+    }
+    workTitleField.classList.remove('required-missing');
+    workTitleField.setAttribute('aria-invalid', 'false');
+    uploadFormMessage?.classList.remove('error');
+
     const saveWorkBtn = document.getElementById('saveWorkBtn');
     const formData = new FormData();
     formData.append('type', workType.value);
@@ -1746,6 +2010,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  document.getElementById('workTitle')?.addEventListener('input', (event) => {
+    const field = event.currentTarget;
+    if (!field.value.trim()) return;
+    field.classList.remove('required-missing');
+    field.setAttribute('aria-invalid', 'false');
+    uploadFormMessage?.classList.remove('error');
+  });
+
   classesContainer?.addEventListener('click', async (event) => {
     const openClassButton = event.target.closest('[data-open-class]');
     const menuButton = event.target.closest('[data-course-menu]');
@@ -1761,9 +2033,15 @@ document.addEventListener('DOMContentLoaded', () => {
       event.stopPropagation();
       const menu = menuButton.nextElementSibling;
       document.querySelectorAll('.card-dropdown-menu').forEach((otherMenu) => {
-        if (otherMenu !== menu) otherMenu.hidden = true;
+        if (otherMenu !== menu) {
+          otherMenu.hidden = true;
+          otherMenu.previousElementSibling?.setAttribute('aria-expanded', 'false');
+        }
       });
-      if (menu) menu.hidden = !menu.hidden;
+      if (menu) {
+        menu.hidden = !menu.hidden;
+        menuButton.setAttribute('aria-expanded', String(!menu.hidden));
+      }
       return;
     }
 
@@ -1774,19 +2052,43 @@ document.addEventListener('DOMContentLoaded', () => {
       const action = actionButton.dataset.courseAction;
       const currentRole = String(localStorage.getItem('lms_user_role') || 'student').toLowerCase();
       const isDean = currentRole === 'dean';
-      const canManageClasses = ['dean', 'teacher', 'instructor'].includes(currentRole);
+      const isStaff = isDean || ['teacher', 'instructor'].includes(currentRole);
       const menu = actionButton.closest('.card-dropdown-menu');
-      if (menu) menu.hidden = true;
-
-      if (action === 'view-code' && isDean) {
-        window.alert(`Class Code: ${card?.dataset.classCode || 'Not available'}\n\nShare this code with your students so they can join.`);
+      if (menu) {
+        menu.hidden = true;
+        menu.previousElementSibling?.setAttribute('aria-expanded', 'false');
       }
 
-      if (action === 'unenroll' && !isDean && window.confirm('Are you sure you want to unenroll from this class?')) {
-        manageCourseEnrollment(courseId);
+      if (action === 'unenroll' && (isDean || ['teacher', 'instructor'].includes(currentRole))) {
+        const confirmed = await showActionConfirmationToast({
+          title: 'Unenroll from this class?',
+          message: isDean
+            ? 'This class will be removed from your dean dashboard. The assigned instructor and enrolled students will keep their access.'
+            : 'This class will be removed from your instructor dashboard and your instructor assignment will be cleared.',
+          confirmLabel: 'Unenroll',
+        });
+        if (confirmed) unenrollStaffFromCourse(courseId);
+      } else if (action === 'unenroll' && !isDean) {
+        const confirmed = await showActionConfirmationToast({
+          title: 'Unenroll from this class?',
+          message: 'You will lose access to this class and its coursework.',
+          confirmLabel: 'Unenroll',
+        });
+        if (confirmed) manageCourseEnrollment(courseId);
       }
 
-      if (action === 'delete' && canManageClasses) {
+      if (isStaff && (action === 'archive' || action === 'activate')) {
+        const confirmed = await showActionConfirmationToast({
+          title: action === 'archive' ? 'Archive this class?' : 'Restore this class?',
+          message: action === 'archive' ? 'The class will be marked as archived.' : 'The class will return to the active classes list.',
+          confirmLabel: action === 'archive' ? 'Archive' : 'Restore',
+        });
+        if (confirmed) updateCourseCardStatus(courseId, action === 'archive' ? 'Archived' : 'Active');
+      }
+
+      if (isStaff && action === 'edit') openEditClassCard(card);
+
+      if (action === 'delete' && isDean) {
         const confirmed = await showConfirmationDialog({
           title: 'Delete this class?',
           message: 'This permanently removes the class and its related content. This action cannot be undone.',
@@ -1810,9 +2112,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.addEventListener('click', () => {
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-course-menu], .card-dropdown-menu')) return;
     document.querySelectorAll('.card-dropdown-menu').forEach((menu) => {
       menu.hidden = true;
+      menu.previousElementSibling?.setAttribute('aria-expanded', 'false');
     });
   });
 
@@ -1912,7 +2216,7 @@ async function openNotificationModal() {
   }
 
   try {
-    const res = await fetch('/api/notifications/dashboard');
+    const res = await fetch(`/api/notifications/dashboard?user_id=${encodeURIComponent(getCurrentUserId() || '')}`);
     const data = await res.json();
     const summary = data.summary || {};
 
@@ -1948,7 +2252,10 @@ async function openNotificationModal() {
     const alertId = (item) => String(item.notification_id ?? item.id ?? `${item.group}:${item.title || ''}:${item.created_at || ''}`);
     const renderAlerts = (items) => items.length ? items.map((item) => {
       const isRead = readIds.includes(alertId(item));
-      return `<div class="notification-alert-row${isRead ? ' is-read' : ''}"><span class="notification-alert-icon" aria-hidden="true">${item.group === 'priority' ? '◷' : '▤'}</span><div class="notification-alert-copy"><strong>${escapeHtml(item.title || 'Notification')}</strong><span>${escapeHtml(item.message || '')} · ${escapeHtml(formatTimeAgo(item.created_at))}</span></div><i class="notification-unread-dot" aria-label="Unread"></i></div>`;
+      const actions = isRead
+        ? `<details class="notification-action-menu"><summary aria-label="Notification options">⋮</summary><div class="notification-action-options"><button type="button" class="notification-delete-action" data-delete-notification="${escapeHtml(alertId(item))}">Delete notification</button></div></details>`
+        : '<span class="notification-action-spacer" aria-hidden="true"></span>';
+      return `<div class="notification-alert-row${isRead ? ' is-read' : ''}" data-alert-id="${escapeHtml(alertId(item))}" role="button" tabindex="0" aria-label="Mark ${escapeHtml(item.title || 'notification')} as read"><span class="notification-alert-icon" aria-hidden="true">${item.group === 'priority' ? '◷' : '▤'}</span><div class="notification-alert-copy"><strong>${escapeHtml(item.title || 'Notification')}</strong><span>${escapeHtml(item.message || '')} · ${escapeHtml(formatTimeAgo(item.created_at))}</span></div>${isRead ? '<span class="notification-read-indicator" aria-label="Read">✓</span>' : '<i class="notification-unread-dot" aria-label="Unread"></i>'}${actions}</div>`;
     }).join('') : '<p class="notification-empty">You’re all caught up.</p>';
     const unread = alerts.filter((item) => !readIds.includes(alertId(item)));
     const earlier = alerts.filter((item) => readIds.includes(alertId(item)));
@@ -1964,7 +2271,10 @@ async function openNotificationModal() {
         readIds = alerts.map(alertId);
         localStorage.setItem(readKey, JSON.stringify(readIds));
         if (priorityContainer) priorityContainer.innerHTML = '<p class="notification-empty">You’re all caught up.</p>';
-        if (systemContainer) systemContainer.innerHTML = renderAlerts(alerts);
+        if (systemContainer) {
+          systemContainer.innerHTML = renderAlerts(alerts);
+          systemContainer.querySelectorAll('[data-delete-notification]').forEach(attachDeleteHandler);
+        }
         bell?.classList.remove('has-unread');
       };
     }
@@ -1982,6 +2292,77 @@ async function openNotificationModal() {
     }
     const bell = document.getElementById('notificationBtn');
     bell?.classList.toggle('has-unread', unread.length > 0);
+
+    const attachDeleteHandler = (deleteButton) => {
+      if (deleteButton.dataset.deleteBound) return;
+      deleteButton.dataset.deleteBound = 'true';
+      deleteButton.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        const notificationId = deleteButton.dataset.deleteNotification;
+        const confirmed = await showConfirmationDialog({
+          title: 'Delete notification?',
+          message: 'This notification will be removed from your list.',
+          confirmLabel: 'Delete'
+        });
+        if (!confirmed) return;
+        deleteButton.disabled = true;
+        try {
+          const response = await fetch(`/api/notifications/${encodeURIComponent(notificationId)}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: getCurrentUserId() || '' })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || 'Could not delete the notification.');
+          readIds = readIds.filter((id) => id !== notificationId);
+          localStorage.setItem(readKey, JSON.stringify(readIds));
+          modal?.classList.add('hidden');
+          if (modal) modal.style.display = 'none';
+          showToast('Notification deleted.');
+          await openNotificationModal();
+          refreshNotificationBadge();
+        } catch (error) {
+          deleteButton.disabled = false;
+          showToast(error.message || 'Could not delete the notification.', { type: 'error' });
+        }
+      });
+    };
+
+    modal?.querySelectorAll('.notification-alert-row[data-alert-id]').forEach((row) => {
+      const markAsRead = () => {
+        const id = row.dataset.alertId;
+        if (readIds.includes(id)) return;
+        readIds.push(id);
+        localStorage.setItem(readKey, JSON.stringify(readIds));
+        row.classList.add('is-read');
+        row.querySelector('.notification-unread-dot')?.remove();
+        row.setAttribute('aria-label', 'Notification marked as read');
+        const readIndicator = document.createElement('span');
+        readIndicator.className = 'notification-read-indicator';
+        readIndicator.setAttribute('aria-label', 'Read');
+        readIndicator.textContent = '✓';
+        const actionMenu = document.createElement('details');
+        actionMenu.className = 'notification-action-menu';
+        actionMenu.innerHTML = '<summary aria-label="Notification options">⋮</summary><div class="notification-action-options"><button type="button" class="notification-delete-action">Delete notification</button></div>';
+        const actionButton = actionMenu.querySelector('.notification-delete-action');
+        actionButton.dataset.deleteNotification = id;
+        row.querySelector('.notification-action-spacer')?.replaceWith(readIndicator, actionMenu);
+        attachDeleteHandler(actionButton);
+        const alert = alerts.find((item) => alertId(item) === id);
+        if (alert && systemContainer && row.parentElement !== systemContainer) {
+          if (systemContainer.querySelector('.notification-empty')) systemContainer.innerHTML = '';
+          systemContainer.appendChild(row);
+        }
+        const remainingUnread = alerts.some((item) => !readIds.includes(alertId(item)));
+        bell?.classList.toggle('has-unread', remainingUnread);
+        if (!remainingUnread && priorityContainer) priorityContainer.innerHTML = '<p class="notification-empty">You’re all caught up.</p>';
+      };
+      row.addEventListener('click', markAsRead);
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); markAsRead(); }
+      });
+    });
+    modal?.querySelectorAll('[data-delete-notification]').forEach(attachDeleteHandler);
   } catch (error) {
     console.error('Error opening notification modal:', error);
   }
@@ -2074,6 +2455,56 @@ async function loadDashboardCourses(fallbackCourses = []) {
   }
 }
 
+async function loadPendingClassRequests() {
+  const panel = document.getElementById('classRequestsPanel');
+  const list = document.getElementById('classRequestsList');
+  if (!panel || !list) return;
+  const deanId = String(getCurrentUserId() || '').trim();
+  if (!deanId || String(localStorage.getItem('lms_user_role') || '').toLowerCase() !== 'dean') {
+    panel.hidden = true;
+    return;
+  }
+  list.innerHTML = '<p class="class-request-empty">Loading class requests...</p>';
+  try {
+    const response = await fetch(`/api/classes/requests?dean_id=${encodeURIComponent(deanId)}`);
+    const requests = await response.json();
+    if (!response.ok) throw new Error(requests.error || 'Unable to load class requests.');
+    const items = Array.isArray(requests) ? requests : [];
+    panel.hidden = items.length === 0;
+    const count = document.getElementById('classRequestsCount');
+    if (count) count.textContent = `${items.length} pending`;
+    list.innerHTML = items.map((request) => `
+      <article class="class-request-card">
+        <div><p class="eyebrow">${escapeHtml(request.course_code || request.course_name || 'New class')}</p><h4>${escapeHtml(request.title)}</h4><p>Submitted by ${escapeHtml(request.submitted_by_name || request.instructor_name || 'Instructor')}</p></div>
+        <button type="button" class="class-request-review-btn" data-review-class-request="${escapeHtml(request.request_id)}">Review details</button>
+      </article>`).join('');
+    list.querySelectorAll('[data-review-class-request]').forEach((button) => button.addEventListener('click', () => {
+      const request = items.find((item) => String(item.request_id) === String(button.dataset.reviewClassRequest));
+      if (request) openClassRequestReview(request);
+    }));
+  } catch (error) {
+    panel.hidden = false;
+    list.innerHTML = `<p class="class-request-empty error">${escapeHtml(error.message || 'Unable to load class requests.')}</p>`;
+  }
+}
+
+function openClassRequestReview(request) {
+  activeClassCreationRequest = request;
+  const details = document.getElementById('classRequestReviewDetails');
+  const message = document.getElementById('classRequestReviewMessage');
+  const approveButton = document.getElementById('approveClassRequestBtn');
+  if (!details) return;
+  const rows = [
+    ['Class name', request.title], ['Course', request.course_name], ['Course code', request.course_code],
+    ['Year', request.year_level], ['Section', request.section], ['Instructor', request.instructor_name || request.submitted_by_name],
+    ['Subject notes', request.subject_notes], ['Requested by', request.submitted_by_name],
+  ].filter(([, value]) => String(value || '').trim());
+  details.innerHTML = rows.map(([label, value]) => `<div class="class-request-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+  if (message) { message.textContent = ''; message.classList.remove('error'); }
+  if (approveButton) { approveButton.disabled = false; approveButton.textContent = 'Approve and create class'; }
+  document.getElementById('classRequestReviewModal')?.classList.remove('hidden');
+}
+
 function renderCourseCards(courses) {
   const container = document.getElementById('coursesContainer');
   if (!container) return;
@@ -2088,10 +2519,9 @@ function renderCourseCards(courses) {
     return;
   }
 
-  container.innerHTML = courses.map((course) => {
+  const renderCards = (courseList) => courseList.map((course) => {
     const metadata = parseCourseMetadata(course.sub_text || '', course.code || 'Course');
     const statusText = escapeHtml(course.status || 'Active');
-    const courseNameText = escapeHtml(metadata.courseName || course.code || 'Course');
     const courseCodeText = escapeHtml(metadata.courseCode || course.code || 'Course');
     const titleText = escapeHtml(course.title || 'Untitled course');
     const instructorText = escapeHtml(metadata.instructor || 'Instructor not set');
@@ -2099,11 +2529,13 @@ function renderCourseCards(courses) {
     const sectionText = escapeHtml(metadata.section || '');
     const subjectText = escapeHtml(metadata.note || '');
     const classCodeText = escapeHtml(course.class_code || 'Not available');
-    const sectionBadgeText = sectionText ? ` <span class="meta-label">Section:</span> ${sectionText}` : '';
-    const canDelete = isDean || (isInstructor && String(course.teacher_id || '') === String(currentUserId || ''));
-    const roleActions = canDelete
-      ? `${isDean ? '<button type="button" data-course-action="view-code">View code</button>' : ''}<button class="danger-option" type="button" data-course-action="delete">Delete class</button>`
-      : '<button type="button" data-course-action="unenroll">Unenroll</button>';
+    const isArchived = /archiv/i.test(String(course.status || ''));
+    const isAssignedInstructor = isInstructor && String(course.teacher_id || '') === String(currentUserId || '');
+    const roleActions = isDean
+      ? `<button type="button" data-course-action="unenroll">Unenroll</button><button type="button" data-course-action="${isArchived ? 'activate' : 'archive'}">${isArchived ? 'Unarchive' : 'Archive'}</button><button type="button" data-course-action="edit">Edit</button>`
+      : isAssignedInstructor
+        ? `<button type="button" data-course-action="unenroll">Unenroll</button><button type="button" data-course-action="${isArchived ? 'activate' : 'archive'}">${isArchived ? 'Unarchive' : 'Archive'}</button><button type="button" data-course-action="edit">Edit</button>`
+        : '<button type="button" data-course-action="unenroll">Unenroll</button>';
 
     const metadataRows = [
       courseCodeText ? `<div class="course-meta-line"><span class="meta-label">Course Code:</span> ${courseCodeText}</div>` : '',
@@ -2122,27 +2554,42 @@ function renderCourseCards(courses) {
         data-class-materials="[]" data-class-resources="[]" data-class-announcements="[]" data-class-upcoming="[]">
         <div class="course-title-row">
           <div class="course-title-wrap">
-            <p class="eyebrow">${courseNameText}${sectionBadgeText}</p>
+            <p class="eyebrow">${courseCodeText}${sectionText ? ` <span class="course-section-label">· Section ${sectionText}</span>` : ''}</p>
             <h3>${titleText}</h3>
           </div>
           <div class="course-card-actions">
             <span class="tag">${statusText}</span>
-            <div class="course-card-menu">
+            ${roleActions ? `<div class="course-card-menu">
               <button class="three-dots-btn" type="button" data-course-menu aria-label="Class options" aria-expanded="false">&#8942;</button>
               <div class="card-dropdown-menu" hidden>
                 ${roleActions}
               </div>
-            </div>
+            </div>` : ''}
           </div>
         </div>
         <div class="course-detail-meta">
           ${metadataRows}
           ${subjectText ? `<p class="course-note">${subjectText}</p>` : ''}
         </div>
+        <div class="course-card-footer"><span>${isArchived ? 'View archive' : 'Open class'}</span><span aria-hidden="true">→</span></div>
       </article>
     `;
   }).join('');
+  if (isDean) {
+    const deanClasses = courses.filter((course) => String(course.teacher_id || '') === String(currentUserId || ''));
+    const instructorClasses = courses.filter((course) => String(course.teacher_id || '') !== String(currentUserId || ''));
+    container.innerHTML = `<h3 class="course-group-heading">Your Classes</h3>${deanClasses.length ? renderCards(deanClasses) : '<p class="course-group-empty">You are not assigned as the instructor for any classes yet.</p>'}<h3 class="course-group-heading">Classes Assigned to Other Instructors</h3>${instructorClasses.length ? renderCards(instructorClasses) : '<p class="course-group-empty">No classes are assigned to other instructors.</p>'}`;
+  } else {
+    container.innerHTML = renderCards(courses);
+  }
   window.applyClassFilters?.();
+}
+
+function splitCourseMetadata(value) {
+  return String(value || '')
+    .split(/\s*(?:•|\u00e2\u20ac\u00a2|\u00c2\u00e2\u20ac\u00a2)\s*/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 function parseCourseMetadata(rawText, fallbackCode) {
@@ -2160,7 +2607,7 @@ function parseCourseMetadata(rawText, fallbackCode) {
   }
 
   const [metaPart = '', notePart = ''] = cleanedText.split('|').map((part) => part.trim());
-  const metaParts = metaPart.split('•').map((part) => part.trim()).filter(Boolean);
+  const metaParts = splitCourseMetadata(metaPart);
 
   const courseName = metaParts[0] || fallbackCode;
   const courseCode = metaParts[1] || fallbackCode;
@@ -2199,6 +2646,92 @@ async function manageCourseEnrollment(courseId) {
     await fetchDashboardData(getCurrentUserId());
   } catch (error) {
     window.alert(error.message || 'Error connecting to the server.');
+  }
+}
+
+let activeEditingClassCardId = null;
+
+async function unenrollStaffFromCourse(courseId) {
+  try {
+    const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/staff-unenroll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: getCurrentUserId() }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to unenroll from this class.');
+    showToast(data.message || 'Class removed from your classes.');
+    await loadDashboardCourses();
+  } catch (error) {
+    window.alert(error.message || 'Unable to unenroll from this class.');
+  }
+}
+
+async function updateCourseCardStatus(courseId, status) {
+  try {
+    const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: getCurrentUserId(), status }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to update class status.');
+    showToast(status === 'Archived' ? 'Class archived.' : 'Class restored.');
+    await loadDashboardCourses();
+  } catch (error) {
+    window.alert(error.message || 'Unable to update class status.');
+  }
+}
+
+function openEditClassCard(card) {
+  if (!card) return;
+  activeEditingClassCardId = card.dataset.courseId;
+  const metadata = parseCourseMetadata(card.dataset.courseDescription || '', card.dataset.courseCategory || '');
+  document.getElementById('editClassTitle').value = card.dataset.courseTitle || '';
+  document.getElementById('editClassCourseName').value = metadata.courseName === card.dataset.courseCategory ? '' : metadata.courseName;
+  document.getElementById('editClassCourseCode').value = metadata.courseCode || card.dataset.courseCategory || '';
+  document.getElementById('editClassYear').value = metadata.year || '';
+  document.getElementById('editClassInstructor').value = metadata.instructor === 'Instructor not set' ? '' : metadata.instructor;
+  document.getElementById('editClassSection').value = metadata.section || '';
+  document.getElementById('editClassSubjectNotes').value = metadata.note || '';
+  const message = document.getElementById('editClassCardMessage');
+  if (message) { message.textContent = ''; message.classList.remove('error'); }
+  document.getElementById('editClassCardModal')?.classList.remove('hidden');
+}
+
+async function saveEditedClassCard() {
+  if (!activeEditingClassCardId) return;
+  const button = document.getElementById('saveEditedClassCardBtn');
+  const message = document.getElementById('editClassCardMessage');
+  button.disabled = true;
+  button.textContent = 'Saving...';
+  if (message) { message.textContent = 'Saving class information...'; message.classList.remove('error'); }
+  try {
+    const response = await fetch(`/api/courses/${encodeURIComponent(activeEditingClassCardId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: getCurrentUserId(),
+        title: document.getElementById('editClassTitle').value.trim(),
+        courseName: document.getElementById('editClassCourseName').value.trim(),
+        courseCode: document.getElementById('editClassCourseCode').value.trim(),
+        yearLevel: document.getElementById('editClassYear').value.trim(),
+        instructor: document.getElementById('editClassInstructor').value.trim(),
+        section: document.getElementById('editClassSection').value.trim(),
+        subjectNotes: document.getElementById('editClassSubjectNotes').value.trim(),
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to save class information.');
+    document.getElementById('editClassCardModal')?.classList.add('hidden');
+    activeEditingClassCardId = null;
+    showToast('Class information updated.');
+    await loadDashboardCourses();
+  } catch (error) {
+    if (message) { message.textContent = error.message || 'Unable to save class information.'; message.classList.add('error'); }
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Save changes';
   }
 }
 
@@ -2330,42 +2863,164 @@ async function openAssignmentModal(assignment, context) {
 
 async function aaStudentView(body, assignment, context) {
   aaExtraStyles();
-  const response = await fetch(`/api/assignments/${assignment.assignment_id}/submission?student_id=${encodeURIComponent(context.userId)}`);
+  const response = await fetch('/api/assignments/' + assignment.assignment_id + '/submission?student_id=' + encodeURIComponent(context.userId));
   const data = await response.json();
-  const submission = data.submission;
   if (!response.ok) { body.textContent = data.error || 'Unable to load your submission.'; return; }
-  const status = submission?.score != null ? ['Graded', 'graded'] : submission ? ['Submitted', 'submitted'] : ['Assigned', 'assigned'];
-  body.innerHTML = `<div class="aa-workcard"><div class="top"><strong>Your work</strong><span class="aa-status ${status[1]}">${status[0]}</span></div><p class="aa-sub">${submission ? `Submitted ${new Date(submission.submitted_at).toLocaleString()}` : 'Attach your work when you are ready.'}</p>${submission ? `<p>File: <a class="aa-file" href="${aaEscape(submission.file_path)}" target="_blank" rel="noopener">${aaEscape(submission.file_name)}</a></p>${submission.score != null ? `<p class="aa-score"><strong>Score: ${submission.score}/${assignment.total_points ?? 100}</strong><br>Feedback: ${aaEscape(submission.feedback || '—')}</p>` : '<p class="aa-sub">Waiting for an instructor to grade this work.</p>'}<button class="aa-unsubmit" type="button">Unsubmit</button>` : `<input type="file" class="aa-file-input" hidden><div class="aa-drop" role="button" tabindex="0">Choose a file to upload</div><p><button class="aa-submitbtn" type="button">Submit work</button></p>`}</div><hr class="aa-divider"><p><strong>Comments</strong></p><input type="text" placeholder="Add comment…" style="width:100%;padding:10px;box-sizing:border-box">`;
-  if (submission) {
-    body.querySelector('.aa-unsubmit').addEventListener('click', async () => {
-      if (!window.confirm('Remove your submission?')) return;
-      await fetch(`/api/assignments/${assignment.assignment_id}/submission?student_id=${encodeURIComponent(context.userId)}`, { method: 'DELETE' });
-      await aaStudentView(body, assignment, context);
-    });
-    return;
-  }
-  const fileInput = body.querySelector('.aa-file-input');
-  const dropZone = body.querySelector('.aa-drop');
-  const chooseFile = () => fileInput.click();
-  dropZone.addEventListener('click', chooseFile);
-  dropZone.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') chooseFile(); });
-  fileInput.addEventListener('change', () => { const file = fileInput.files[0]; if (file) { dropZone.textContent = `📄 ${file.name}`; dropZone.classList.add('hasfile'); } });
-  body.querySelector('.aa-submitbtn').addEventListener('click', async () => {
-    if (!fileInput.files.length) { window.alert('Choose a file first.'); return; }
-    const form = new FormData(); form.append('file', fileInput.files[0]); form.append('student_id', String(context.userId));
-    const result = await fetch(`/api/assignments/${assignment.assignment_id}/submission`, { method: 'POST', body: form });
-    const resultData = await result.json();
-    if (!result.ok) { window.alert(resultData.error || 'Submission failed.'); return; }
-    await aaStudentView(body, assignment, context);
-  });
-}
 
+  let submission = data.submission;
+  let pending = { file: null, fileName: '', linkTitle: '', submissionUrl: '', submissionKind: '' };
+  const render = () => {
+    const isSubmitted = Boolean(submission);
+    const isGraded = submission?.score != null;
+    const statusClass = isGraded ? 'graded' : isSubmitted ? 'turned-in' : 'assigned';
+    const statusLabel = isGraded ? 'Graded' : isSubmitted ? 'Submitted' : 'Assigned';
+    const attachmentName = submission?.file_name || pending.fileName || pending.linkTitle;
+    const attachmentUrl = submission?.submission_url || submission?.file_path || pending.submissionUrl;
+    const attachmentMarkup = attachmentUrl
+      ? '<div class="submission-file"><a class="submission-file-link" href="' + aaEscape(attachmentUrl) + '" target="_blank" rel="noopener">' + aaEscape(attachmentName || 'Open submitted work') + '</a>' +
+        (!isSubmitted ? '<button class="submission-remove" type="button" aria-label="Remove attached work">×</button>' : '') + '</div>'
+      : pending.file
+        ? '<div class="submission-file"><span class="submission-file-name">' + aaEscape(pending.fileName) + '</span><button class="submission-remove" type="button" aria-label="Remove attached work">×</button></div>'
+        : '<div class="submission-empty">No work added yet</div>';
+    const gradeMarkup = isGraded
+      ? '<p class="submission-grade-note">Score: ' + aaEscape(submission.score) + '/' + aaEscape(assignment.total_points ?? 100) + '<br>Feedback: ' + aaEscape(submission.feedback || '—') + '</p>'
+      : isSubmitted ? '<p class="aa-sub">Waiting for an instructor to grade this work.</p>' : '';
+    body.innerHTML =
+      '<div class="aa-workcard student-submission-panel">' +
+        '<div class="submission-heading"><h3>Your work</h3><span class="submission-status ' + statusClass + '">' + statusLabel + '</span></div>' +
+        '<p class="aa-sub">' + (isSubmitted ? 'Submitted ' + new Date(submission.submitted_at).toLocaleString() : 'Attach your work when you are ready.') + '</p>' +
+        gradeMarkup +
+        '<div class="submission-file-list">' + attachmentMarkup + '</div>' +
+        (isSubmitted ? '' :
+          '<input type="file" class="aa-file-input" hidden>' +
+          '<div class="submission-add-menu" hidden>' +
+            '<button type="button" data-assignment-method="upload">Upload a file</button>' +
+            '<button type="button" data-assignment-method="link">Submit a link</button>' +
+          '</div>' +
+          '<div class="submission-link-form" hidden>' +
+            '<label>Link<input class="aa-link-url" type="text" maxlength="2000" placeholder="Paste an internal or web link"></label>' +
+            '<div class="submission-link-actions"><button class="aa-attach-link" type="button">Attach link</button><button class="aa-cancel-link" type="button">Cancel</button></div>' +
+          '</div>' +
+          '<button class="submission-add-file-btn aa-add-work" type="button">+ Add link or upload</button>') +
+        '<button class="submission-toggle-btn aa-submit-work' + (isSubmitted ? ' unsubmit' : '') + '" type="button">' + (isSubmitted ? 'Unsubmit' : 'Submit') + '</button>' +
+      '</div><hr class="aa-divider"><p><strong>Comments</strong></p><input type="text" placeholder="Add comment…" style="width:100%;padding:10px;box-sizing:border-box">';
+
+    if (isSubmitted) {
+      body.querySelector('.aa-submit-work').addEventListener('click', async () => {
+        if (!window.confirm('Remove your submission?')) return;
+        const result = await fetch('/api/assignments/' + assignment.assignment_id + '/submission?student_id=' + encodeURIComponent(context.userId), { method: 'DELETE' });
+        if (!result.ok) {
+          const error = await result.json().catch(() => ({}));
+          window.alert(error.error || 'Unable to remove your submission.');
+          return;
+        }
+        submission = null;
+        render();
+      });
+      return;
+    }
+
+    const fileInput = body.querySelector('.aa-file-input');
+    const menu = body.querySelector('.submission-add-menu');
+    const linkForm = body.querySelector('.submission-link-form');
+    body.querySelector('.aa-add-work').addEventListener('click', () => {
+      linkForm.hidden = true;
+      menu.hidden = !menu.hidden;
+    });
+    menu.querySelectorAll('[data-assignment-method]').forEach((option) => option.addEventListener('click', () => {
+      menu.hidden = true;
+      if (option.dataset.assignmentMethod === 'upload') {
+        fileInput.click();
+        return;
+      }
+      linkForm.hidden = false;
+      linkForm.querySelector('.aa-link-url').value = '';
+      linkForm.querySelector('.aa-link-url').focus();
+    }));
+    linkForm.querySelector('.aa-cancel-link').addEventListener('click', () => { linkForm.hidden = true; });
+    linkForm.querySelector('.aa-attach-link').addEventListener('click', () => {
+      const rawUrl = linkForm.querySelector('.aa-link-url').value.trim();
+      if (!rawUrl) return window.alert('Paste a link before attaching it.');
+      const isInternalPath = rawUrl.startsWith('/') && !rawUrl.startsWith('//');
+      let parsedUrl = null;
+      try { parsedUrl = new URL(rawUrl, window.location.origin); } catch (_) { /* Invalid URL. */ }
+      if (!isInternalPath && (!parsedUrl || !['http:', 'https:'].includes(parsedUrl.protocol))) {
+        return window.alert('Use an internal LMS path or a valid http:// or https:// link.');
+      }
+      let linkTitle = parsedUrl.hostname;
+      if (isInternalPath) {
+        const pathPart = rawUrl.split(/[?#]/)[0].split('/').filter(Boolean).pop() || 'Internal LMS link';
+        try { linkTitle = decodeURIComponent(pathPart); } catch (_) { linkTitle = pathPart; }
+      }
+      pending = {
+        file: null,
+        fileName: '',
+        linkTitle: linkTitle.slice(0, 200),
+        submissionUrl: isInternalPath ? rawUrl : parsedUrl.href,
+        submissionKind: 'link',
+      };
+      render();
+    });
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      pending = { file, fileName: file.name, linkTitle: '', submissionUrl: '', submissionKind: '' };
+      render();
+    });
+    body.querySelector('.submission-remove')?.addEventListener('click', () => {
+      pending = { file: null, fileName: '', linkTitle: '', submissionUrl: '', submissionKind: '' };
+      render();
+    });
+    body.querySelector('.aa-submit-work').addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      if (!pending.file && !pending.submissionUrl) {
+        window.alert('Add a file or link before submitting your work.');
+        return;
+      }
+      const confirmed = await showConfirmationDialog({
+        title: 'Submit this assignment?',
+        message: 'Please confirm that your work is ready to be submitted.',
+        confirmLabel: 'Submit assignment',
+      });
+      if (!confirmed) return;
+      button.disabled = true;
+      let requestOptions;
+      if (pending.file) {
+        const formData = new FormData();
+        formData.append('file', pending.file);
+        formData.append('student_id', String(context.userId));
+        requestOptions = { method: 'POST', body: formData };
+      } else {
+        requestOptions = {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            student_id: String(context.userId),
+            submission_url: pending.submissionUrl,
+            submission_kind: 'link',
+            file_name: pending.linkTitle,
+          }),
+        };
+      }
+      try {
+        const result = await fetch('/api/assignments/' + assignment.assignment_id + '/submission', requestOptions);
+        const resultData = await result.json();
+        if (!result.ok) throw new Error(resultData.error || 'Submission failed.');
+        await aaStudentView(body, assignment, context);
+      } catch (error) {
+        window.alert(error.message || 'Submission failed.');
+        button.disabled = false;
+      }
+    });
+  };
+  render();
+}
 async function aaStaffView(body, assignment) {
   const response = await fetch(`/api/assignments/${assignment.assignment_id}/submissions`);
   const submissions = await response.json();
   if (!response.ok) { body.textContent = submissions.error || 'Unable to load submissions.'; return; }
   if (!submissions.length) { body.innerHTML = '<p class="aa-muted">No student submissions yet.</p>'; return; }
-  body.innerHTML = submissions.map((submission, index) => `<div class="aa-row" data-submission-index="${index}"><div style="flex:1;min-width:150px"><strong>Student #${aaEscape(submission.student_id)}</strong><br><span class="aa-muted">${new Date(submission.submitted_at).toLocaleString()}</span><br><a class="aa-file" href="${aaEscape(submission.file_path)}" target="_blank" rel="noopener">${aaEscape(submission.file_name)}</a></div><input type="number" min="0" max="${assignment.total_points ?? 100}" value="${submission.score ?? ''}" placeholder="Score"><textarea rows="2" placeholder="Feedback">${aaEscape(submission.feedback || '')}</textarea><button class="aa-btn green save-grade" type="button">Save grade</button></div>`).join('');
+  body.innerHTML = submissions.map((submission, index) => `<div class="aa-row" data-submission-index="${index}"><div style="flex:1;min-width:150px"><strong>Student #${aaEscape(submission.student_id)}</strong><br><span class="aa-muted">${new Date(submission.submitted_at).toLocaleString()}</span><br><a class="aa-file" href="${aaEscape(submission.submission_url || submission.file_path)}" target="_blank" rel="noopener">${aaEscape(submission.file_name)}</a></div><input type="number" min="0" max="${assignment.total_points ?? 100}" value="${submission.score ?? ''}" placeholder="Score"><textarea rows="2" placeholder="Feedback">${aaEscape(submission.feedback || '')}</textarea><button class="aa-btn green save-grade" type="button">Save grade</button></div>`).join('');
   body.querySelectorAll('.save-grade').forEach((button) => button.addEventListener('click', async () => {
     const row = button.closest('.aa-row'); const submission = submissions[Number(row.dataset.submissionIndex)];
     const result = await fetch(`/api/assignments/${assignment.assignment_id}/submissions/${encodeURIComponent(submission.student_id)}/grade`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ score: Number(row.querySelector('input').value), feedback: row.querySelector('textarea').value }) });
@@ -2423,7 +3078,7 @@ const mcalEsc = (value) => aaEscape(value);
 function mcalStyles() {
   if (document.getElementById('mcalStyles')) return;
   const style = document.createElement('style'); style.id = 'mcalStyles';
-  style.textContent = `.cal-kicker{color:#d6336c;font-weight:800;font-size:12px;letter-spacing:1px}.cal-h2{margin:2px 0 14px;font-size:24px;color:#333}.cal-pillbtn{background:#fbdce8;color:#d6336c;border:0;border-radius:999px;padding:7px 14px;font-weight:700;cursor:pointer}.cal-card,.cal-item{background:#fdeef5;border:1px solid #f7cddd;border-radius:8px;padding:18px;margin-bottom:16px}.cal-top,.cal-navrow{display:flex;gap:8px;align-items:center}.cal-top{justify-content:space-between}.cal-month{font-size:18px;font-weight:800}.cal-count{background:#f9c9dd;color:#c2255c;border-radius:999px;padding:6px 14px;font-weight:700;font-size:13px}.cal-sub{color:#8a6470;font-size:13px}.cal-days,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;text-align:center}.cal-days{font-size:11px;font-weight:800;color:#8a6470;margin:12px 0 8px}.cal-cell{border-radius:8px;padding:10px 0;font-weight:800;color:#8f1d3f;background:#fbe3ec;cursor:pointer}.cal-cell.out{background:#eef2f7;color:#b6c2cf;cursor:default}.cal-cell.past{border:1px solid #f76c6c}.cal-cell.today{background:#fdf3d7;border:1px solid #f5a623}.cal-cell.up{background:#d3f3ef;border:1px solid #20b2aa}.cal-item .cat{color:#c2255c;font-weight:800;font-size:14px}.cal-item .ttl{color:#333;font-weight:700;margin:4px 0}.cal-item .dsc{color:#8a6470;font-size:13px}`;
+  style.textContent = `.cal-kicker{color:#d6336c;font-weight:800;font-size:12px;letter-spacing:1px}.cal-h2{margin:2px 0 3px;font-size:24px;color:#333}.cal-pillbtn{background:#fbdce8;color:#d6336c;border:0;border-radius:999px;padding:7px 14px;font-weight:700;cursor:pointer}.cal-card,.cal-item{background:#fdeef5;border:1px solid #f7cddd;border-radius:8px;padding:18px;margin-bottom:16px}.cal-top,.cal-navrow{display:flex;gap:8px;align-items:center}.cal-top{justify-content:space-between}.cal-month{font-size:18px;font-weight:800}.cal-count{background:#f9c9dd;color:#c2255c;border-radius:999px;padding:6px 14px;font-weight:700;font-size:13px}.cal-sub{color:#8a6470;font-size:13px}.cal-heading-sub{margin:0 0 14px}.cal-days,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;text-align:center}.cal-days{font-size:11px;font-weight:800;color:#8a6470;margin:12px 0 8px}.cal-cell{border-radius:8px;padding:10px 0;font-weight:800;color:#8f1d3f;background:#fbe3ec;cursor:pointer}.cal-cell.out{background:#eef2f7;color:#b6c2cf;cursor:default}.cal-cell.past{border:1px solid #f76c6c}.cal-cell.today{background:#fdf3d7;border:1px solid #f5a623}.cal-cell.up{background:#d3f3ef;border:1px solid #20b2aa}.cal-item .cat{color:#c2255c;font-weight:800;font-size:14px}.cal-item .ttl{color:#333;font-weight:700;margin:4px 0}.cal-item .dsc{color:#8a6470;font-size:13px}`;
   document.head.appendChild(style);
 }
 function renderMonthlyCalendar(context, root) {
@@ -2605,13 +3260,13 @@ function showCalendarEventDetails(items) {
 function mcalStyles2() {
   if (document.getElementById('mcalStyles2')) return;
   const style = document.createElement('style'); style.id = 'mcalStyles2';
-  style.textContent = `.cal-legend2{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#555;margin:4px 0 12px}.cal-legend2 span{display:inline-flex;align-items:center;gap:6px}.cal-legend2 i{width:12px;height:12px;border-radius:4px;display:inline-block}.cal-cell.t-exam{background:#dbeafe;border-color:#3b82f6;color:#1d4ed8}.cal-cell.t-celebration{background:#fdf3d7;border-color:#f5a623;color:#8a5a00}.cal-cell.t-deadline{background:#fbdce3;border-color:#f76c6c;color:#b02438}.cal-cell.t-meeting{background:#ede9fe;border-color:#8b5cf6;color:#5b21b6}.cal-cell.t-event{background:#d3f3ef;border-color:#20b2aa;color:#0f766e}.cal-cell.t-due{background:#fbe3ec;border-color:#d6336c;color:#8f1d3f}.cal-cell.today{border:2px solid #f5a623}.cal-item .cat2{font-weight:800;font-size:12px;letter-spacing:.5px;text-transform:uppercase}.cal-item .date2{color:#8a6470;font-size:13px;font-weight:700;margin:2px 0}`;
+  style.textContent = `.cal-legend2{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#555;margin:4px 0 12px}.cal-legend2 span{display:inline-flex;align-items:center;gap:6px}.cal-legend2 i{width:12px;height:12px;border-radius:4px;display:inline-block}.cal-cell.t-exam{background:#dbeafe;border-color:#3b82f6;color:#1d4ed8}.cal-cell.t-celebration{background:#fdf3d7;border-color:#f5a623;color:#8a5a00}.cal-cell.t-deadline{background:#fbdce3;border-color:#f76c6c;color:#b02438}.cal-cell.t-meeting{background:#ede9fe;border-color:#8b5cf6;color:#5b21b6}.cal-cell.t-event{background:#d3f3ef;border-color:#20b2aa;color:#0f766e}.cal-cell.t-due{background:#fbe3ec;border-color:#d6336c;color:#8f1d3f}.cal-cell.today{border:2px solid #f5a623}.cal-item .cat2{font-weight:800;font-size:12px;letter-spacing:.5px;text-transform:uppercase}.cal-item .date2{color:#8a6470;font-size:13px;font-weight:700;margin:2px 0}.cal-item-title-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.cal-event-menu{position:relative;flex:none}.cal-event-menu summary{display:grid;place-items:center;width:30px;height:30px;border:1px solid #ead7df;border-radius:9px;background:#fff;color:#725867;font-size:20px;line-height:1;cursor:pointer;list-style:none}.cal-event-menu summary::-webkit-details-marker{display:none}.cal-event-menu[open] summary{border-color:#d6336c;color:#a6224e}.cal-event-menu-options{position:absolute;z-index:8;top:34px;right:0;min-width:140px;padding:5px;border:1px solid #ead7df;border-radius:10px;background:#fff;box-shadow:0 8px 24px rgba(60,20,40,.16)}.cal-event-delete{width:100%;padding:9px 10px;border:0;border-radius:7px;background:#fff;color:#b42345;text-align:left;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.cal-event-delete:hover{background:#fff0f3}.cal-event-delete:disabled{opacity:.55;cursor:wait}`;
   document.head.appendChild(style);
 }
 function renderMonthlyCalendarPro(ctx, root) {
   if (!root) return; mcalStyles(); mcalStyles2();
-  const isStaff = ['instructor', 'teacher', 'dean', 'admin', 'superadmin'].includes(String(ctx.role || '').toLowerCase().replace(/\s+/g, ''));
-  root.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:start"><div><div class="cal-kicker">CALENDAR</div><div class="cal-h2">Monthly Overview</div></div><button class="cal-pillbtn" id="calTodayBtn">This Week</button></div><div class="cal-card"><div class="cal-top"><span class="cal-month" id="calLabel"></span><span class="cal-count" id="calCount"></span></div><p class="cal-sub">Upcoming deadlines and key school events.</p><div class="cal-legend2">${Object.values(MCAL_TYPES).map((type) => `<span><i style="background:${type.dot}"></i>${type.label}</span>`).join('')}<span><i style="background:${MCAL_DUE.dot}"></i>${MCAL_DUE.label}</span><span><i style="background:#fff;border:2px solid #f5a623"></i>Today</span></div><div class="cal-navrow"><button class="cal-pillbtn" id="calPrev">‹</button><button class="cal-pillbtn" id="calNext">›</button>${isStaff ? '<button class="cal-pillbtn" id="calAdd">+ Add Event</button>' : ''}</div><div class="cal-days">${['SUN','MON','TUE','WED','THU','FRI','SAT'].map((day) => `<div>${day}</div>`).join('')}</div><div class="cal-grid" id="calGrid"></div></div><div id="calList"></div>`;
+  const isDean = String(ctx.role || '').toLowerCase().replace(/\s+/g, '') === 'dean';
+  root.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:start"><div><div class="cal-kicker">CALENDAR</div><div class="cal-h2">Monthly Overview</div><p class="cal-sub cal-heading-sub">Keep track of upcoming deadlines and school events.</p></div><button class="cal-pillbtn" id="calTodayBtn">This Week</button></div><div class="cal-card"><div class="cal-top"><span class="cal-month" id="calLabel"></span><span class="cal-count" id="calCount"></span></div><div class="cal-legend2">${Object.values(MCAL_TYPES).map((type) => `<span><i style="background:${type.dot}"></i>${type.label}</span>`).join('')}<span><i style="background:${MCAL_DUE.dot}"></i>${MCAL_DUE.label}</span><span><i style="background:#fff;border:2px solid #f5a623"></i>Today</span></div><div class="cal-navrow"><button class="cal-pillbtn" id="calPrev">‹</button><button class="cal-pillbtn" id="calNext">›</button>${isDean ? '<button class="cal-pillbtn" id="calAdd">+ Add Event</button>' : ''}</div><div class="cal-days">${['SUN','MON','TUE','WED','THU','FRI','SAT'].map((day) => `<div>${day}</div>`).join('')}</div><div class="cal-grid" id="calGrid"></div></div><div id="calList"></div>`;
   let month = new Date(); const grid = root.querySelector('#calGrid');
   const shift = (amount) => { month = new Date(month.getFullYear(), month.getMonth() + amount, 1); load(); };
   root.querySelector('#calPrev').onclick = () => shift(-1); root.querySelector('#calNext').onclick = () => shift(1);
@@ -2630,7 +3285,32 @@ function renderMonthlyCalendarPro(ctx, root) {
     grid.innerHTML = cells; root.querySelector('#calCount').textContent = `${items.length} Event${items.length === 1 ? '' : 's'}`;
     grid.querySelectorAll('[data-day]').forEach((cell) => cell.onclick = () => { const list = byDay[Number(cell.dataset.day)] || []; if (list.length) showCalendarEventDetails(list); });
     const sorted = [...items].sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
-    root.querySelector('#calList').innerHTML = sorted.length ? sorted.map((item) => { const type = item.kind === 'event' ? mcalTypeOf(item) : null; const isPast = new Date(`${String(item.start_date).slice(0, 10)}T00:00:00`) < today; const label = type ? type.label : (isPast ? 'Missed Assignment' : 'Upcoming Activity'); const color = type ? type.dot : (isPast ? '#f76c6c' : MCAL_DUE.dot); const classLine = item.kind === 'assignment' && item.course_title ? `<div class="dsc" style="color:#b02458;font-weight:800">▣ From class: ${mcalEsc(item.course_title)}</div>` : ''; const desc = mcalCleanDesc(item) || ''; return `<div class="cal-item"><div class="cat2" style="color:${color}">${label}</div><div class="ttl">${mcalEsc(item.title)}</div>${classLine}<div class="date2">📅 ${mcalExactDate(item)}</div>${desc ? `<div class="dsc">${mcalEsc(desc)}</div>` : ''}</div>`; }).join('') : '<p class="cal-sub">Nothing scheduled this month.</p>';
+    root.querySelector('#calList').innerHTML = sorted.length ? sorted.map((item) => { const type = item.kind === 'event' ? mcalTypeOf(item) : null; const isPast = new Date(`${String(item.start_date).slice(0, 10)}T00:00:00`) < today; const label = type ? type.label : (isPast ? 'Missed Assignment' : 'Upcoming Activity'); const color = type ? type.dot : (isPast ? '#f76c6c' : MCAL_DUE.dot); const classLine = item.kind === 'assignment' && item.course_title ? `<div class="dsc" style="color:#b02458;font-weight:800">▣ From class: ${mcalEsc(item.course_title)}</div>` : ''; const desc = mcalCleanDesc(item) || ''; const actions = isDean && item.kind === 'event' ? `<details class="cal-event-menu"><summary aria-label="Event options">⋮</summary><div class="cal-event-menu-options"><button type="button" class="cal-event-delete" data-delete-event="${Number(item.id)}">Delete event</button></div></details>` : ''; return `<div class="cal-item"><div class="cal-item-title-row"><div><div class="cat2" style="color:${color}">${label}</div><div class="ttl">${mcalEsc(item.title)}</div></div>${actions}</div>${classLine}<div class="date2">📅 ${mcalExactDate(item)}</div>${desc ? `<div class="dsc">${mcalEsc(desc)}</div>` : ''}</div>`; }).join('') : '<p class="cal-sub">Nothing scheduled this month.</p>';
+    root.querySelectorAll('[data-delete-event]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const confirmed = await showConfirmationDialog({
+          title: 'Delete calendar event?',
+          message: 'This event will be removed from the calendar and cannot be restored.',
+          confirmLabel: 'Delete event'
+        });
+        if (!confirmed) return;
+        button.disabled = true;
+        try {
+          const response = await fetch(`/api/pages/events/${encodeURIComponent(button.dataset.deleteEvent)}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: ctx.role, user_id: ctx.userId })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || 'Could not delete the event.');
+          showToast('Calendar event deleted.');
+          await load();
+        } catch (error) {
+          button.disabled = false;
+          showToast(error.message || 'Could not delete the event.', { type: 'error' });
+        }
+      });
+    });
   }
   load();
 }
@@ -2655,7 +3335,7 @@ function resStyles() {
 function renderResourcesPage(ctx, root) {
   if (!root) return; mcalStyles(); resStyles();
   const isStaff = ['instructor', 'teacher', 'dean', 'admin', 'superadmin'].includes(String(ctx.role || '').toLowerCase().replace(/\s+/g, ''));
-  root.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:start"><div><div class="cal-kicker">RESOURCES</div><div class="cal-h2">Study Library</div></div>${isStaff ? '<button class="cal-pillbtn" id="resAdd">+ Add Resource</button>' : ''}</div><p class="cal-sub">Lessons and materials shared by your instructors.</p><input class="res-search" id="resSearch" placeholder="🔍 Search by title or class…"><div class="res-grid" id="resGrid"></div>`;
+  root.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:start"><div><div class="cal-kicker">RESOURCES</div><div class="cal-h2">Study Library</div><p class="cal-sub cal-heading-sub">Lessons and materials shared by your instructors.</p></div>${isStaff ? '<button class="cal-pillbtn" id="resAdd">+ Add Resource</button>' : ''}</div><input class="res-search" id="resSearch" placeholder="🔍 Search by title or class…"><div class="res-grid" id="resGrid"></div>`;
   let items = []; const grid = root.querySelector('#resGrid');
   const draw = (filter = '') => { const query = filter.toLowerCase(); const visible = items.filter((item) => !query || String(item.title).toLowerCase().includes(query) || String(item.course_title || '').toLowerCase().includes(query)); grid.innerHTML = visible.length ? visible.map((item) => { const viewUrl = String(item.pdf_url).startsWith('/uploads/') ? `/api/materials/${encodeURIComponent(item.material_id)}/preview` : item.pdf_url; return `<div class="res-card"><div class="res-icon">${resIcon(item.pdf_url)}</div><div class="res-title">${resEsc(item.title)}</div><div class="res-class">📘 ${resEsc(item.course_title || '')}${item.course_code ? ` (${resEsc(item.course_code)})` : ''}</div>${item.pdf_url ? `<div class="res-actions"><a class="res-view" href="${resEsc(viewUrl)}" target="_blank" rel="noopener">◉ View</a><a class="res-dl" href="/api/materials/${encodeURIComponent(item.material_id)}/download">⇩ Download</a></div>` : '<div class="res-class">No file attached</div>'}</div>`; }).join('') : '<p class="cal-sub">No resources found.</p>'; };
   root.querySelector('#resSearch').oninput = (event) => draw(event.target.value);
@@ -2693,38 +3373,51 @@ const crEsc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => 
 function crStyles() {
   if (document.getElementById('crStyles')) return;
   const style = document.createElement('style'); style.id = 'crStyles';
-  style.textContent = `.cr-card{background:#fff;border:1px solid #f0dfe6;border-radius:14px;padding:16px;margin-bottom:16px;overflow:auto}.cr-h{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:6px 0 10px}.cr-title{font-size:16px;font-weight:800;color:#8f1d3f}.cr-btn{border:0;border-radius:999px;padding:9px 16px;font-weight:700;cursor:pointer;font-size:13px}.cr-csv{background:linear-gradient(135deg,#e0477e,#d6336c);color:#fff}.cr-print{background:#fff;color:#8f1d3f;border:1.5px solid #ecd3dd}.cr-remove{background:#fff;color:#c62828;border:1px solid #c62828;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer}.cr-table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}.cr-table th{background:#fdeef5;color:#8f1d3f;padding:8px 10px;text-align:left}.cr-table td{border:1px solid #f3e1e9;padding:8px 10px}.cr-pts{display:block;font-size:10px;color:#b06080;font-weight:600}.cr-id{color:#999;font-size:11px}.cr-pass{color:#1e7e34;font-weight:800}.cr-fail{color:#c62828;font-weight:800}.cr-none{color:#bbb;text-align:center}.cr-avg{font-weight:800;color:#8f1d3f}`;
+  style.textContent = `.cr-card{background:#fff;border:1px solid #f0dfe6;border-radius:14px;padding:16px;margin-bottom:16px;overflow:auto}.cr-h{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin:6px 0 10px}.cr-title{font-size:16px;font-weight:800;color:#8f1d3f}.cr-roster-toggle{padding:4px 0;border:0;background:transparent;font:inherit;cursor:pointer;text-align:left}.cr-roster-toggle:hover,.cr-roster-toggle:focus-visible{text-decoration:underline}.cr-roster-toggle[aria-expanded="true"]::after{content:'  ▴';font-size:12px}.cr-roster-toggle[aria-expanded="false"]::after{content:'  ▾';font-size:12px}.cr-btn{border:0;border-radius:999px;padding:9px 16px;font-weight:700;cursor:pointer;font-size:13px}.cr-csv{background:linear-gradient(135deg,#e0477e,#d6336c);color:#fff}.cr-print{background:#fff;color:#8f1d3f;border:1.5px solid #ecd3dd}.cr-table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}.cr-table th{background:#fdeef5;color:#8f1d3f;padding:8px 10px;text-align:left}.cr-table td{border:1px solid #f3e1e9;padding:8px 10px}.cr-pts{display:block;font-size:10px;color:#b06080;font-weight:600}.cr-id{color:#999;font-size:11px}.cr-pass{color:#1e7e34;font-weight:800}.cr-fail{color:#c62828;font-weight:800}.cr-none{color:#bbb;text-align:center}.cr-avg{font-weight:800;color:#8f1d3f}`;
+  style.textContent += `.cr-search-wrap{display:flex;align-items:center;gap:9px;width:min(330px,100%);padding:0 12px;border:1px solid #e3d7dd;border-radius:9px;background:#fff;color:#a6224e;box-shadow:0 2px 7px rgba(46,28,38,.035)}.cr-search-wrap:focus-within{border-color:#a6224e;box-shadow:0 0 0 3px rgba(166,34,78,.1)}.cr-search-wrap>span{font-size:20px;line-height:1}.cr-search-wrap input{width:100%;min-width:0;padding:10px 0;border:0!important;outline:0!important;background:transparent;font:inherit;font-size:13px}.cr-search-wrap input:focus{box-shadow:none!important}.cr-search-empty{padding:14px;color:#786b72;text-align:center;font-size:13px}.cr-table tr[hidden]{display:none}.cr-student-info-link{padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:800;text-align:left;cursor:pointer}.cr-student-info-link:hover,.cr-student-info-link:focus-visible{color:#a6224e;text-decoration:underline}.cr-student-info-overlay{position:fixed;inset:0;z-index:10020;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(42,20,30,.42);backdrop-filter:blur(3px)}.cr-student-info-card{width:min(480px,100%);overflow:hidden;border:1px solid #f0dfe6;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(55,20,38,.24)}.cr-student-info-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;background:linear-gradient(135deg,#e0477e,#b02458);color:#fff}.cr-student-info-head h3{margin:0;font-size:18px}.cr-student-info-close{width:34px;height:34px;border:0;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;font-size:22px;cursor:pointer}.cr-student-info-body{padding:12px 22px 20px}.cr-student-info-table{width:100%;border-collapse:collapse;font-size:14px}.cr-student-info-table th,.cr-student-info-table td{padding:13px 12px;border:1px solid #f0dfe6;text-align:left}.cr-student-info-table th{width:38%;background:#fdeef5;color:#8f1d3f;font-weight:700}.cr-student-info-table td{color:#392a32;font-weight:600}`;
   document.head.appendChild(style);
 }
 async function renderClassRecordPro(courseId, ctx, root, courseTitle) {
   if (!root) return; crStyles(); root.innerHTML = '<p class="cal-sub">Loading class record…</p>';
   const response = await fetch(`/api/courses/${courseId}/record`);
   if (!response.ok) { root.innerHTML = '<p class="cal-sub">Failed to load the class record.</p>'; return; }
-  const data = await response.json(); const students = data.students || []; const assignments = data.assignments || []; const scores = {};
+  const data = await response.json(); const students = data.students || []; const assignments = data.assignments || []; const classYearLevel = data.course_year || ''; const scores = {};
   (data.scores || []).forEach((score) => { scores[`${score.student_id}|${score.assignment_id}`] = score; });
-  const staff = ['instructor', 'teacher', 'dean', 'admin', 'superadmin'].includes(String(ctx.role || '').toLowerCase().replace(/\s+/g, ''));
   const percentage = (score, assignment) => (Number(score.score) / Number(assignment.total_points || 100)) * 100;
-  const grid = assignments.length ? `<table class="cr-table"><thead><tr><th>Student</th>${assignments.map((assignment) => `<th>${crEsc(assignment.title)}<span class="cr-pts">/ ${assignment.total_points} pts</span></th>`).join('')}<th>Average</th></tr></thead><tbody>${students.map((student) => { let count = 0; let total = 0; const cells = assignments.map((assignment) => { const score = scores[`${student.student_id}|${assignment.assignment_id}`]; if (!score || score.score == null) return '<td class="cr-none">—</td>'; const pct = percentage(score, assignment); count++; total += pct; return `<td class="${pct >= 75 ? 'cr-pass' : 'cr-fail'}">${score.score}</td>`; }).join(''); return `<tr><td><strong>${crEsc(student.student_name)}</strong> <span class="cr-id">#${crEsc(student.student_id)}</span></td>${cells}<td class="cr-avg">${count ? `${Math.round(total / count)}%` : '—'}</td></tr>`; }).join('')}</tbody></table>` : '<p class="cr-id">No activities or quizzes created yet.</p>';
-  root.innerHTML = `<div class="cr-h"><span class="cr-title">📋 Class List (${students.length} student${students.length === 1 ? '' : 's'})</span></div><div class="cr-card">${students.length ? `<table class="cr-table"><thead><tr><th>#</th><th>Student ID</th><th>Name</th><th>Year Level</th><th>Academic Year</th>${staff ? '<th></th>' : ''}</tr></thead><tbody>${students.map((student, index) => `<tr><td>${index + 1}</td><td>${crEsc(student.student_id)}</td><td><strong>${crEsc(student.student_name)}</strong></td><td>${crEsc(student.year_level || '—')}</td><td>${crEsc(student.academic_year || '—')}</td>${staff ? `<td><button class="cr-remove" data-sid="${crEsc(student.student_id)}" data-student-name="${crEsc(student.student_name)}">Remove</button></td>` : ''}</tr>`).join('')}</tbody></table>` : '<p class="cr-id">No students enrolled yet.</p>'}</div><div class="cr-h"><span class="cr-title">🎓 Grade Grid</span><span style="display:flex;gap:8px"><button class="cr-btn cr-csv" id="crCsv">⬇ Export CSV</button><button class="cr-btn cr-print" id="crPrint">🖨 Print / Save PDF</button></span></div><div class="cr-card">${grid}</div>`;
-  root.querySelectorAll('.cr-remove').forEach((button) => button.onclick = async () => {
-    const studentName = button.dataset.studentName || `student #${button.dataset.sid}`;
-    const confirmed = await showConfirmationDialog({
-      title: 'Remove student?',
-      message: `${studentName} will lose access to this class. Their submitted work and grades will be retained.`,
-      confirmLabel: 'Remove student',
+  const displayStudentId = (studentId) => String(studentId ?? '').replace(/\D/g, '');
+  const displayCourse = (student) => String(student.course || student.year_level || '').trim().replace(/^BS\s*-?\s*IT$/i, 'BS-IT');
+  const studentSearchText = (student) => crEsc([student.student_name, student.student_id, student.year_level, student.course, student.academic_year].filter(Boolean).join(' '));
+  const grid = assignments.length ? `<table class="cr-table"><thead><tr><th>Student</th>${assignments.map((assignment) => `<th>${crEsc(assignment.title)}<span class="cr-pts">/ ${assignment.total_points} pts</span></th>`).join('')}</tr></thead><tbody>${students.map((student, index) => { const cells = assignments.map((assignment) => { const score = scores[`${student.student_id}|${assignment.assignment_id}`]; if (!score || score.score == null) return '<td class="cr-none">—</td>'; const pct = percentage(score, assignment); return `<td class="${pct >= 75 ? 'cr-pass' : 'cr-fail'}">${score.score}</td>`; }).join(''); return `<tr class="cr-grade-row" data-search="${studentSearchText(student)}"><td><button type="button" class="cr-student-info-link" data-student-index="${index}" aria-label="View ${crEsc(student.student_name)}'s information">${crEsc(student.student_name)}</button> <span class="cr-id">${crEsc(displayStudentId(student.student_id))}</span></td>${cells}</tr>`; }).join('')}</tbody></table>` : '<p class="cr-id">No activities or quizzes created yet.</p>';
+  root.innerHTML = `<div class="cr-h"><label class="cr-search-wrap"><span aria-hidden="true">⌕</span><input id="crStudentSearch" type="search" placeholder="Search name, ID, or course" aria-label="Search students by name, ID, or course"></label><span style="display:flex;gap:8px"><button class="cr-btn cr-csv" id="crCsv">⬇ Export CSV</button><button class="cr-btn cr-print" id="crPrint">🖨 Print / Save PDF</button></span></div><div class="cr-h"><span class="cr-title">🎓 Grade Grid</span></div><div class="cr-card">${grid}${students.length && assignments.length ? '<p class="cr-search-empty" id="crGridNoResults" hidden>No students match your search.</p>' : ''}</div>`;
+  root.querySelectorAll('.cr-student-info-link').forEach((button) => {
+    button.addEventListener('click', () => {
+      const student = students[Number(button.dataset.studentIndex)];
+      if (!student) return;
+      const overlay = document.createElement('div');
+      overlay.className = 'cr-student-info-overlay';
+      overlay.setAttribute('role', 'presentation');
+      overlay.innerHTML = `<section class="cr-student-info-card" role="dialog" aria-modal="true" aria-labelledby="crStudentInfoTitle"><header class="cr-student-info-head"><h3 id="crStudentInfoTitle">Student Information</h3><button type="button" class="cr-student-info-close" aria-label="Close">×</button></header><div class="cr-student-info-body"><table class="cr-student-info-table"><tbody><tr><th scope="row">Student ID</th><td>${crEsc(displayStudentId(student.student_id) || '—')}</td></tr><tr><th scope="row">Name</th><td>${crEsc(student.student_name || '—')}</td></tr><tr><th scope="row">Year Level</th><td>${crEsc(classYearLevel || student.year_level || '—')}</td></tr><tr><th scope="row">Course</th><td>${crEsc(displayCourse(student) || '—')}</td></tr></tbody></table></div></section>`;
+      const closeOnEscape = (event) => { if (event.key === 'Escape') close(); };
+      const close = () => { overlay.remove(); document.removeEventListener('keydown', closeOnEscape); };
+      overlay.querySelector('.cr-student-info-close').addEventListener('click', close);
+      overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+      document.addEventListener('keydown', closeOnEscape);
+      document.body.appendChild(overlay);
+      overlay.querySelector('.cr-student-info-close').focus();
     });
-    if (!confirmed) return;
-
-    button.disabled = true;
-    const result = await fetch(`/api/courses/${courseId}/students/${encodeURIComponent(button.dataset.sid)}?teacher_id=${encodeURIComponent(ctx.userId)}`, { method: 'DELETE' });
-    if (!result.ok) {
-      button.disabled = false;
-      return window.alert((await result.json().catch(() => ({}))).error || 'Failed to remove student.');
-    }
-    showToast(`${studentName} has been removed from this class.`);
-    renderClassRecordPro(courseId, ctx, root, courseTitle);
   });
-  root.querySelector('#crCsv').onclick = () => { const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`; const header = ['Student ID', 'Student Name', 'Year Level', 'Academic Year', ...assignments.map((assignment) => `${assignment.title} (/${assignment.total_points})`), 'Average %']; const rows = [header]; students.forEach((student) => { let count = 0; let total = 0; const values = assignments.map((assignment) => { const score = scores[`${student.student_id}|${assignment.assignment_id}`]; if (!score || score.score == null) return ''; count++; total += percentage(score, assignment); return score.score; }); rows.push([student.student_id, student.student_name, student.year_level || '', student.academic_year || '', ...values, count ? Math.round(total / count) : '']); }); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([rows.map((row) => row.map(quote).join(',')).join('\n')], { type: 'text/csv' })); link.download = `Class-Record-${String(courseTitle || courseId).replace(/[^\w-]+/g, '_')}.csv`; link.click(); URL.revokeObjectURL(link.href); };
+  root.querySelector('#crStudentSearch')?.addEventListener('input', (event) => {
+    const query = event.currentTarget.value.trim().toLocaleLowerCase();
+    let visibleCount = 0;
+    root.querySelectorAll('.cr-grade-row').forEach((row) => {
+      const matches = !query || row.dataset.search.toLocaleLowerCase().includes(query);
+      row.hidden = !matches;
+      if (matches) visibleCount++;
+    });
+    const noGridResults = root.querySelector('#crGridNoResults');
+    if (noGridResults) noGridResults.hidden = visibleCount > 0;
+  });
+  root.querySelector('#crCsv').onclick = () => { const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`; const header = ['Student ID', 'Student Name', 'Year Level', 'Course', 'Academic Year', ...assignments.map((assignment) => `${assignment.title} (/${assignment.total_points})`)]; const rows = [header]; students.forEach((student) => { const values = assignments.map((assignment) => { const score = scores[`${student.student_id}|${assignment.assignment_id}`]; return !score || score.score == null ? '' : score.score; }); rows.push([displayStudentId(student.student_id), student.student_name, classYearLevel || student.year_level || '', displayCourse(student), student.academic_year || '', ...values]); }); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([rows.map((row) => row.map(quote).join(',')).join('\n')], { type: 'text/csv' })); link.download = `Class-Record-${String(courseTitle || courseId).replace(/[^\w-]+/g, '_')}.csv`; link.click(); URL.revokeObjectURL(link.href); };
   root.querySelector('#crPrint').onclick = () => { const popup = window.open('', '_blank'); popup.document.write(`<html><head><title>Class Record</title><style>body{font-family:Segoe UI,Arial;padding:24px;color:#222}table{border-collapse:collapse;width:100%;margin-top:14px;font-size:12px}td,th{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#fdeef5}</style></head><body><h1>IMCC LMS — Class Record</h1><h2>${crEsc(courseTitle || `Class #${courseId}`)}</h2><p>Generated ${new Date().toLocaleString()}</p>${grid}</body></html>`); popup.document.close(); popup.focus(); popup.print(); };
 }
 
@@ -2924,6 +3617,23 @@ async function loadInstructorOptions() {
   const input = document.getElementById('classInstructorInput');
   if (!input) return;
   let select = document.getElementById('classInstructorSelect');
+  const user = JSON.parse(localStorage.getItem('lms_current_user') || '{}');
+  const role = String(user.role || localStorage.getItem('lms_user_role') || '').toLowerCase();
+  const deanField = document.getElementById('approvingDeanField');
+  const submitButton = document.getElementById('createClassSubmit');
+  if (['teacher', 'instructor'].includes(role)) {
+    input.value = String(user.name || user.first_name || '');
+    input.readOnly = true;
+    input.style.display = '';
+    if (select) select.hidden = true;
+    if (deanField) deanField.hidden = false;
+    if (submitButton) submitButton.textContent = 'Send for approval';
+    await loadApprovingDeanOptions();
+    return;
+  }
+  input.readOnly = false;
+  if (deanField) deanField.hidden = true;
+  if (submitButton) submitButton.textContent = 'Create Class';
   if (!select) {
     select = document.createElement('select');
     select.id = 'classInstructorSelect';
@@ -2936,11 +3646,39 @@ async function loadInstructorOptions() {
     const res = await fetch('/api/admin/users');
     const users = await res.json();
     const list = Array.isArray(users) ? users : [];
+    const currentUser = JSON.parse(localStorage.getItem('lms_current_user') || '{}');
+    const currentUserId = String(currentUser.student_id || currentUser.user_id || getCurrentUserId() || '');
+    const isDean = String(currentUser.role || localStorage.getItem('lms_user_role') || '').toLowerCase() === 'dean';
     const teachers = list.filter((u) => ['teacher', 'instructor'].includes(String(u.role || '').toLowerCase()));
+    select.hidden = false;
+    input.style.display = 'none';
+    if (isDean && currentUserId) {
+      const deanAccount = list.find((u) => String(u.student_id) === currentUserId);
+      const selfOption = deanAccount || { student_id: currentUserId, name: currentUser.name || currentUser.first_name || 'Dean', email: currentUser.email || '' };
+      teachers.push({ ...selfOption, role: 'dean', isCurrentDean: true });
+    }
     select.innerHTML = '<option value="">— No instructor assigned —</option>' +
-      teachers.map((u) => `<option value="${String(u.student_id).replace(/"/g, '&quot;')}" data-name="${String(u.name || '').replace(/"/g, '&quot;')}">${u.name} (${u.email})</option>`).join('');
+      teachers.map((u) => `<option value="${escapeHtml(u.student_id)}" data-name="${escapeHtml(u.name || '')}">${escapeHtml(u.name || '')}${u.isCurrentDean ? ' (Dean — You)' : ` (${escapeHtml(u.email || '')})`}</option>`).join('');
   } catch (err) {
     select.innerHTML = '<option value="">Unable to load instructors</option>';
+  }
+}
+
+async function loadApprovingDeanOptions() {
+  const select = document.getElementById('classApprovingDeanSelect');
+  if (!select) return;
+  select.innerHTML = '<option value="">Loading deans...</option>';
+  try {
+    const response = await fetch('/api/admin/users');
+    const users = await response.json();
+    if (!response.ok) throw new Error('Unable to load deans');
+    const deans = (Array.isArray(users) ? users : []).filter((user) => String(user.role || '').toLowerCase() === 'dean');
+    select.innerHTML = '<option value="">Select a dean</option>' + deans.map((dean) =>
+      `<option value="${escapeHtml(dean.student_id)}">${escapeHtml(dean.name || 'Dean')}${dean.email ? ` (${escapeHtml(dean.email)})` : ''}</option>`
+    ).join('');
+    if (!deans.length) select.innerHTML = '<option value="">No deans are available</option>';
+  } catch (_error) {
+    select.innerHTML = '<option value="">Unable to load deans</option>';
   }
 }
 
@@ -2950,6 +3688,12 @@ function upgradeCreateClassInstructorPicker() {
   submitBtn.dataset.upgraded = '1';
   const fresh = submitBtn.cloneNode(true); // removes the old submit listener safely
   submitBtn.parentNode.replaceChild(fresh, submitBtn);
+  const classNameField = document.getElementById('classNameInput');
+  classNameField?.addEventListener('input', () => {
+    const missing = !classNameField.value.trim();
+    classNameField.classList.toggle('required-missing', missing);
+    classNameField.setAttribute('aria-invalid', String(missing));
+  });
   fresh.addEventListener('click', async () => {
     const className = (document.getElementById('classNameInput')?.value || '').trim();
     const courseCode = (document.getElementById('classCourseInput')?.value || '').trim();
@@ -2961,16 +3705,30 @@ function upgradeCreateClassInstructorPicker() {
     const selected = select?.selectedOptions?.[0];
     const instructorIdRaw = (select?.value || '').trim();
     const instructorName = (selected?.dataset?.name || selected?.textContent || '').trim();
+    const currentUser = JSON.parse(localStorage.getItem('lms_current_user') || '{}');
+    const currentRole = String(currentUser.role || localStorage.getItem('lms_user_role') || '').toLowerCase();
+    const isInstructor = ['teacher', 'instructor'].includes(currentRole);
+    const approvingDeanId = String(document.getElementById('classApprovingDeanSelect')?.value || '').trim();
     const msg = document.getElementById('createClassMessage');
     if (!className) {
+      classNameField?.classList.add('required-missing');
+      classNameField?.setAttribute('aria-invalid', 'true');
       if (msg) { msg.textContent = 'Please enter a class name.'; msg.classList.add('error'); }
+      classNameField?.focus();
       return;
     }
-    fresh.textContent = 'Creating...';
+    if (isInstructor && !approvingDeanId) {
+      if (msg) { msg.textContent = 'Select the dean who will review this class.'; msg.classList.add('error'); }
+      document.getElementById('classApprovingDeanSelect')?.focus();
+      return;
+    }
+    classNameField?.classList.remove('required-missing');
+    classNameField?.setAttribute('aria-invalid', 'false');
+    fresh.textContent = isInstructor ? 'Sending...' : 'Creating...';
     fresh.disabled = true;
-    if (msg) { msg.textContent = 'Creating class...'; msg.classList.remove('error'); }
+    if (msg) { msg.textContent = isInstructor ? 'Sending class request...' : 'Creating class...'; msg.classList.remove('error'); }
     try {
-      const response = await fetch('/api/classes/create', {
+      const response = await fetch(isInstructor ? '/api/classes/requests' : '/api/classes/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2978,29 +3736,38 @@ function upgradeCreateClassInstructorPicker() {
           course,
           courseCode,
           yearLevel: year,
-          instructor: instructorName || 'Instructor not set',
+          instructor: isInstructor ? String(currentUser.name || currentUser.first_name || '') : instructorName || 'Instructor not set',
           section,
           subText: subjectNotes,
-          // A dean may deliberately leave the class unassigned.  Do not turn
-          // that into an assignment to the dean's own account.
-          teacherId: instructorIdRaw || null,
+          teacherId: isInstructor ? getCurrentUserId() : instructorIdRaw || null,
           createdBy: getCurrentUserId(),
+          deanId: approvingDeanId,
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to create class.');
       const codeDisplay = document.getElementById('classCodeDisplay');
-      if (codeDisplay) codeDisplay.value = data.classCode;
+      const codeGroup = document.getElementById('createClassCodeGroup');
+      const successTitle = document.getElementById('createClassSuccessTitle');
+      const successMessage = document.getElementById('createClassSuccessMessage');
+      const copyButton = document.getElementById('copyCreateCodeBtn');
+      if (codeDisplay) codeDisplay.value = data.classCode || '';
+      if (isInstructor) {
+        if (codeGroup) codeGroup.hidden = true;
+        if (copyButton) copyButton.hidden = true;
+        if (successTitle) successTitle.textContent = 'Class request sent';
+        if (successMessage) successMessage.textContent = 'Your selected dean will review the class details. The class will appear in your dashboard after approval.';
+      }
       const formGroup = document.getElementById('createClassFormGroup');
       const successBox = document.getElementById('createClassSuccessBox');
       if (formGroup) formGroup.hidden = true;
       if (successBox) successBox.hidden = false;
-      await fetchDashboardData(getCurrentUserId());
+      if (!isInstructor) await fetchDashboardData(getCurrentUserId());
     } catch (error) {
       if (msg) { msg.textContent = error.message || 'Unable to create class. Please try again.'; msg.classList.add('error'); }
     } finally {
       fresh.disabled = false;
-      fresh.textContent = 'Create Class';
+      fresh.textContent = isInstructor ? 'Send for approval' : 'Create Class';
     }
   });
 }
@@ -3008,6 +3775,33 @@ function upgradeCreateClassInstructorPicker() {
 document.addEventListener('DOMContentLoaded', () => {
   upgradeCreateClassInstructorPicker();
   document.getElementById('createClassBtn')?.addEventListener('click', loadInstructorOptions);
+  document.getElementById('saveEditedClassCardBtn')?.addEventListener('click', saveEditedClassCard);
+  document.getElementById('approveClassRequestBtn')?.addEventListener('click', async (event) => {
+    if (!activeClassCreationRequest) return;
+    const button = event.currentTarget;
+    const message = document.getElementById('classRequestReviewMessage');
+    button.disabled = true;
+    button.textContent = 'Approving...';
+    if (message) { message.textContent = 'Creating the approved class...'; message.classList.remove('error'); }
+    try {
+      const response = await fetch(`/api/classes/requests/${encodeURIComponent(activeClassCreationRequest.request_id)}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deanId: getCurrentUserId() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to approve this request.');
+      document.getElementById('classRequestReviewModal')?.classList.add('hidden');
+      activeClassCreationRequest = null;
+      showToast(`Class approved. Join code: ${data.classCode}`);
+      await Promise.all([loadDashboardCourses(), loadPendingClassRequests()]);
+    } catch (error) {
+      if (message) { message.textContent = error.message || 'Unable to approve this request.'; message.classList.add('error'); }
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Approve and create class';
+    }
+  });
 });
 
 
@@ -3032,7 +3826,7 @@ async function loadDashboardCourses(fallbackCourses = []) {
       const name = String(course.instructor_name || names.get(String(course.teacher_id)) || '').trim();
       if (!name) return;
       const [metaPart = '', notePart = ''] = String(course.sub_text || '').split('|').map((p) => p.trim());
-      const metaParts = metaPart.split('•').map((p) => p.trim());
+      const metaParts = splitCourseMetadata(metaPart);
       while (metaParts.length < 5) metaParts.push('');
       if (!metaParts[3] || /^(instructor not set|no instructor assigned)$/i.test(metaParts[3])) {
         metaParts[3] = name;

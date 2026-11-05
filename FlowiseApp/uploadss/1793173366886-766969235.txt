@@ -1,0 +1,188 @@
+
+
+Research Title: AI‑Assisted Learning Management System for Iligan Medical Center College (IMCC)
+
+Dear Respondent,
+
+This questionnaire aims to gather information for the development of an AI‑Assisted Learning Management System (LMS) for Iligan Medical Center College. Your responses will be treated with strict confidentiality and used solely for academic research purposes. Thank you for your participation.
+
+PART I – RESPONDENT PROFILE
+
+Role: _____ Student _____ Instructor _____ 
+
+Administrator Year Level / Department: __________________
+
+PART II – RATING SCALE
+
+Instructions: Check (✓) the number that best matches your level of agreement with each statement.
+
+5 – Strongly Agree 
+
+4 – Agree 
+
+3 – Neutral 
+
+2 – Disagree 
+
+1 – Strongly Disagree
+
+
+
+No.
+
+Statement
+
+1
+
+2
+
+3
+
+4
+
+5
+
+1
+
+I can easily log in to the AI-Assisted Learning Management System using my assigned user role.
+
+
+
+
+
+
+
+
+
+
+
+2
+
+The system is easy to navigate and user-friendly.
+
+
+
+
+
+
+
+
+
+
+
+3
+
+I can easily access, view, or manage learning materials inside the system.
+
+
+
+
+
+
+
+
+
+
+
+4
+
+The system effectively supports assignments, quizzes, and other academic activities.
+
+
+
+
+
+
+
+
+
+
+
+5
+
+The system helps me monitor academic progress, grades, or performance accurately.
+
+
+
+
+
+
+
+
+
+
+
+6
+
+The announcements, notifications, and communication features are clear and reliable. 
+
+
+
+
+
+
+
+
+
+
+
+7
+
+The AI chatbot provides answers that are based on the uploaded course materials.
+
+
+
+
+
+
+
+
+
+
+
+8
+
+The AI chatbot gives helpful, clear, and timely academic assistance.
+
+
+
+
+
+
+
+
+
+
+
+9
+
+The system loads quickly, responds properly, and works reliably during use.
+
+
+
+
+
+
+
+
+
+
+
+10
+
+I accept the AI-Assisted Learning Management System as a suitable platform for learning and academic management at IMCC.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Comments/Suggestions:
+

@@ -4,13 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LMS Portal</title>
+    <link rel="icon" type="image/png" href="/IMCC%20LOGO/IMCCLOGO1.png" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <!-- GOOGLE SSO LOGIN OVERLAY -->
     <div id="loginScreen" style="position: fixed; inset: 0; background: #4a001f; display: flex; align-items: center; justify-content: center; z-index: 9999;">
       <div style="background: white; border-radius: 20px; padding: 40px; width: 360px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: center;">
-        <div style="width: 60px; height: 60px; background: #d81b60; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold; margin: 0 auto 16px auto;">IL</div>
+        <img src="/IMCC%20LOGO/IMCCLOGO1.png" alt="IMCC logo" style="width: 60px; height: 60px; object-fit: contain; border-radius: 50%; display: block; margin: 0 auto 16px auto;" />
         <h2 style="margin: 0 0 6px 0; color: #4a001f; font-size: 22px; font-weight: 800;">IMCC LMS Portal</h2>
         <p style="margin: 0 0 20px 0; color: #666; font-size: 13px;">Sign in to your institutional email to access the LMS portal</p>
 
@@ -49,48 +50,37 @@
       </div>
       <aside class="sidebar">
         <div class="brand-row">
-          <div class="brand-avatar">IL</div>
+     <img class="brand-avatar" src="/IMCC%20LOGO/IMCCLOGO1.png" alt="IMCC logo" />
           <div class="brand">IMCC LMS</div>
         </div>
         <nav class="nav-list">
-          <button class="nav-btn active" data-target="classes">Classes</button>
-          <button class="nav-btn" data-target="assignments">Assignments</button>
-          <button class="nav-btn" data-target="calendar">Calendar</button>
-          <button class="nav-btn" data-target="resources">Resources</button>
+          <button class="nav-btn active" data-target="classes"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 3.5h8l4 4V20H7zM15 3.5v4h4M10 11h6M10 14h6M10 17h4"/><path d="m4 6 1-1v15h11"/></svg><span>Classes</span></button>
+          <button class="nav-btn" data-target="assignments"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 3.5h8l4 4V15H6zM14 3.5v4h4M9 10h6M9 13h4"/><circle cx="17.5" cy="17.5" r="3.5"/><path d="M17.5 15.5v4M16.2 17.5h2.6"/></svg><span>Assignments</span></button>
+          <button class="nav-btn" data-target="calendar"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01"/></svg><span>Calendar</span></button>
+          <button class="nav-btn" data-target="resources"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m10 2 .5 2.1a8 8 0 0 1 3 0L14 2l2.3 1-.7 2a8 8 0 0 1 2.1 2.1l2-.7 1 2.3-2.1.5a8 8 0 0 1 0 3l2.1.5-1 2.3-2-.7a8 8 0 0 1-2.1 2.1l.7 2-2.3 1-.5-2.1a8 8 0 0 1-3 0L10 21l-2.3-1 .7-2a8 8 0 0 1-2.1-2.1l-2 .7-1-2.3 2.1-.5a8 8 0 0 1 0-3l-2.1-.5 1-2.3 2 .7a8 8 0 0 1 2.1-2.1l-.7-2z"/><circle cx="12" cy="10.5" r="3.2"/><path d="m14.4 13 4 4"/></svg><span>Resources</span></button>
           <button id="adminControlPanelBtn" class="nav-btn" data-target="admin-panel" hidden>Control Panel</button>
         </nav>
-        <button id="logoutBtn" class="logout-btn" type="button" aria-label="Sign out" title="Sign out">
-          <svg class="signout-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 8l4 4-4 4M18 12H8" />
-          </svg>
-          <span>Sign out</span>
-        </button>
+        <div class="sidebar-footer">
+          <button id="logoutBtn" class="logout-btn" type="button" aria-label="Sign out" title="Sign out">
+            <svg class="signout-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 8l4 4-4 4M18 12H8" /></svg>
+            <span>Sign out</span>
+          </button>
+        </div>
       </aside>
 
       <main class="main-content">
         <header class="topbar">
-          <div>
-            <h1 id="greetingHeading" aria-live="polite">WELCOME TO IMCC LMS PORTAL</h1>
-            <p id="academicInfo" class="topbar-subtitle"></p>
-          </div>
           <div class="topbar-actions">
             <div class="account-actions">
-              <div class="role-indicator" aria-label="Signed-in role">
-                <span>Hello,</span>
-                <strong id="signedInRole">Student</strong>
-              </div>
               <button id="notificationBtn" class="ghost-btn notification-btn" aria-label="Notifications" title="Notifications" aria-haspopup="dialog" aria-expanded="false">
                 <svg class="notification-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
                 </svg>
               </button>
-            </div>
-            <div class="class-actions">
-              <button id="joinClassBtn" class="primary-btn">Join Class</button>
-              <button id="createClassBtn" class="profile-settings-btn" aria-label="Create Class">
-                <span class="profile-avatar">+</span>
-                <span class="profile-label">Create Class</span>
-              </button>
+              <div class="account-profile" aria-label="Signed-in account">
+                <span id="profileAvatar" class="profile-avatar">IM</span>
+                <span class="profile-copy"><strong id="signedInName">IMCC User</strong><small id="signedInRole">Student</small></span>
+              </div>
             </div>
           </div>
         </header>
@@ -159,6 +149,11 @@
                 <input id="classInstructorInput" type="text" placeholder="" />
               </div>
 
+              <div id="approvingDeanField" class="form-field" hidden>
+                <label for="classApprovingDeanSelect">Dean who will approve this class <span class="required">*</span></label>
+                <select id="classApprovingDeanSelect" required><option value="">Select a dean</option></select>
+              </div>
+
               <div class="form-field">
                 <label for="classSectionInput">Section <span class="optional-note">(optional)</span></label>
                 <input id="classSectionInput" type="text" placeholder="" />
@@ -175,14 +170,25 @@
             </div>
             <div id="createClassSuccessBox" class="success-box" hidden>
               <div class="success-icon" aria-hidden="true">✓</div>
-              <h3>Class Created Successfully!</h3>
-              <p>Share this join code with your students:</p>
-              <div class="code-display-group">
+              <h3 id="createClassSuccessTitle">Class Created Successfully!</h3>
+              <p id="createClassSuccessMessage">Share this join code with your students:</p>
+              <div id="createClassCodeGroup" class="code-display-group">
                 <input id="classCodeDisplay" type="text" readonly aria-label="Generated class code" />
                 <button id="copyCreateCodeBtn" class="btn-copy" type="button">Copy</button>
               </div>
               <button id="finishCreateBtn" class="btn-secondary" type="button">Done &amp; Go to Dashboard</button>
             </div>
+          </div>
+        </div>
+
+        <div id="classRequestReviewModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="classRequestReviewTitle">
+          <div class="modal-content">
+            <button class="close-modal" type="button" aria-label="Close">&times;</button>
+            <p class="eyebrow">Class creation request</p>
+            <h3 id="classRequestReviewTitle">Review class details</h3>
+            <div id="classRequestReviewDetails" class="class-request-review-details"></div>
+            <p id="classRequestReviewMessage" class="form-note" aria-live="polite"></p>
+            <button id="approveClassRequestBtn" class="primary-btn" type="button">Approve and create class</button>
           </div>
         </div>
 
@@ -281,9 +287,37 @@
           </div>
         </div>
 
+        <div id="editClassCardModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editClassCardTitle">
+          <div class="modal-content edit-class-card-modal">
+            <button class="close-modal" type="button" aria-label="Close">&times;</button>
+            <p class="eyebrow">Class settings</p>
+            <h3 id="editClassCardTitle">Edit class information</h3>
+            <div class="edit-class-fields">
+              <label>Class name<input id="editClassTitle" type="text" maxlength="255" required /></label>
+              <label>Course name<input id="editClassCourseName" type="text" maxlength="255" /></label>
+              <label>Course code<input id="editClassCourseCode" type="text" maxlength="30" /></label>
+              <label>Year<input id="editClassYear" type="text" maxlength="80" /></label>
+              <label>Instructor<input id="editClassInstructor" type="text" maxlength="255" /></label>
+              <label>Section<input id="editClassSection" type="text" maxlength="100" /></label>
+              <label>Subject notes<textarea id="editClassSubjectNotes" rows="3"></textarea></label>
+            </div>
+            <p id="editClassCardMessage" class="form-note" aria-live="polite"></p>
+            <button id="saveEditedClassCardBtn" class="primary-btn" type="button">Save changes</button>
+          </div>
+        </div>
+
         <section id="classes" class="content-section active">
           <div class="classes-toolbar">
-            <div class="classes-heading"><h2>Classes</h2><p>Find and manage your classes.</p></div>
+            <div class="classes-header-row">
+              <div class="classes-heading"><h2>Classes</h2><p id="greetingHeading" aria-live="polite">Find and manage your classes.</p></div>
+              <div id="classesDashboardActions" class="classes-dashboard-actions" hidden>
+                <button id="joinClassBtn" class="primary-btn">Join Class</button>
+                <button id="createClassBtn" class="profile-settings-btn" aria-label="Create Class">
+                  <span class="profile-avatar">+</span>
+                  <span class="profile-label">Create Class</span>
+                </button>
+              </div>
+            </div>
             <div class="classes-controls">
               <label class="class-search"><span aria-hidden="true">⌕</span><input id="classSearchInput" type="search" placeholder="Search by name, code or instructor" aria-label="Search classes"></label>
               <div class="class-filters" role="group" aria-label="Filter classes">
@@ -294,6 +328,10 @@
               <span id="classCount" class="class-count" aria-live="polite"></span>
             </div>
           </div>
+          <section id="classRequestsPanel" class="class-requests-panel" hidden aria-labelledby="classRequestsHeading">
+            <div class="class-requests-heading"><div><p class="eyebrow">Dean review</p><h3 id="classRequestsHeading">Class requests awaiting approval</h3></div><span id="classRequestsCount" class="class-count"></span></div>
+            <div id="classRequestsList" class="class-requests-list"></div>
+          </section>
           <section id="coursesContainer" class="course-list" aria-live="polite" data-loading="true">
             <p class="course-loader">Loading active classes…</p>
             <article class="course-card clickable" tabindex="0" role="button" data-course-category="Programming" data-course-title="EVENT-DRIVEN PROGRAMMING" data-course-description="Learn how user actions and system events drive interactive applications. Practice building event handlers and callback flows." data-class-materials='["Event callback notes", "Practice exercise", "Quiz 5"]' data-class-resources='["Example JS file", "Debugger tips", "Event flow chart"]' data-class-announcements='["Submit event handler assignment.", "Live coding session today at 3pm."]' data-class-upcoming='["Quiz 5 due tomorrow", "Interactive lab review"]'>
@@ -515,13 +553,13 @@
               <div class="class-dashboard-class-info">
                 <div class="class-header-kicker">
                   <p class="eyebrow" id="detailClassCategory">Class</p>
-                  <button id="classMembersBtn" class="class-members-btn" type="button" aria-label="View class members" title="Class Members">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3Zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3Zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13Zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.96 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5Z"/></svg>
-                  </button>
                 </div>
                 <h2 id="detailClassTitle">Selected Class</h2>
+                <button id="classMembersBtn" class="class-members-btn" type="button" aria-label="View class members" title="Class Members">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3Zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3Zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13Zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.96 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5Z"/></svg>
+                </button>
                 <p id="detailClassSubtitle">Keep track of work due and complete class activities.</p>
-                <p class="form-note">Code: <span id="detailClassCode">—</span> <button id="copyDetailCode" class="ghost-btn">Copy</button></p>
+                <p class="form-note">Code: <span id="detailClassCode">—</span> <button id="copyDetailCode" class="ghost-btn copy-code-btn" type="button" aria-label="Copy class code" title="Copy class code"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="8" y="8" width="12" height="13" rx="2"></rect><path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h2"></path></svg></button></p>
               </div>
             </div>
 
@@ -574,7 +612,18 @@
                 <p id="submissionGradeNote" class="submission-grade-note" hidden></p>
                 <div id="submissionFileList" class="submission-file-list"></div>
                 <input id="submissionFileInput" type="file" hidden>
-                <button id="addSubmissionFileBtn" class="submission-add-file-btn" type="button">+ Add or create</button>
+                <div id="submissionAddMenu" class="submission-add-menu" hidden>
+                  <button type="button" data-submission-method="upload">Upload a file</button>
+                  <button type="button" data-submission-method="link">Submit a link</button>
+                </div>
+                <div id="submissionLinkForm" class="submission-link-form" hidden>
+                  <label for="submissionLinkUrl">Link<input id="submissionLinkUrl" type="text" maxlength="2000" placeholder="Paste an internal or web link"></label>
+                  <div class="submission-link-actions">
+                    <button id="saveSubmissionLinkBtn" type="button">Attach link</button>
+                    <button id="cancelSubmissionLinkBtn" type="button">Cancel</button>
+                  </div>
+                </div>
+                <button id="addSubmissionFileBtn" class="submission-add-file-btn" type="button">+ Add link or upload</button>
                 <button id="submitWorkBtn" class="submission-toggle-btn" type="button">Submit</button>
               </section>
               <section id="submissionReviewPanel" class="submission-review-panel" hidden aria-labelledby="submissionReviewTitle">
@@ -582,7 +631,7 @@
                 <div id="submissionReviewList" class="submission-review-list"></div>
               </section>
               <div class="class-comments">
-                <h3>Class comments</h3>
+                <h3 id="classCommentsHeading">Comments</h3>
                 <div id="classCommentsList" class="class-comments-list" aria-live="polite"></div>
                 <form id="classCommentForm" class="class-comment-form">
                   <input id="classCommentInput" type="text" aria-label="Add class comment" placeholder="Add a comment..." maxlength="1000" autocomplete="off" />
@@ -606,7 +655,7 @@
                   <option value="Quiz">Quiz / Assessment</option>
                 </select>
               </label>
-              <label>Title
+              <label>Title <span class="required">*</span>
                 <input id="workTitle" type="text" required placeholder="e.g. Module 2: Advanced Layouts">
               </label>
               <label>Description <span class="optional-field">(optional)</span>
@@ -644,13 +693,26 @@
     <!-- Shared widget: available only while an authenticated user session exists. -->
     <div id="aiChatbotRoot" style="display: none;">
       <div class="chat-widget fixed-chatbot-wrapper">
-      <button class="chat-toggle" aria-label="Open assistant">💬 Chatbot</button>
+      <button class="chat-toggle" aria-label="Open assistant">
+        <svg class="study-buddy-icon" viewBox="0 0 160 160" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M80 10a62 62 0 0 0-50 99L16 137l34-4a62 62 0 1 0 30-123Z" />
+          <path fill="var(--accent)" d="M76 35a6 6 0 0 1 12 0v10a36 36 0 0 1 29 24 21 21 0 0 1 0 41 36 36 0 0 1-24 20v11h-6v8H68v-8h-7v-11a36 36 0 0 1-24-20 21 21 0 0 1 0-41 36 36 0 0 1 29-24V35Zm4 24a27 27 0 1 0 0 54 27 27 0 0 0 0-54Z" />
+          <circle cx="64" cy="82" r="5" fill="currentColor" />
+          <circle cx="96" cy="82" r="5" fill="currentColor" />
+          <path d="M73 92q7 9 14 0" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="5" />
+        </svg>
+        <span>AI Study Buddy</span>
+      </button>
       <div class="chat-panel">
         <div class="chat-header">
-          <span>AI Chatbot assistant</span>
+          <span>Study Buddy</span>
           <button class="chat-close" type="button" aria-label="Close chatbot" title="Close chatbot">&times;</button>
         </div>
         <div class="chat-body chat-messages">
+        </div>
+        <div class="chat-disclaimer" role="note">
+          <span class="chat-disclaimer-icon" aria-hidden="true">i</span>
+          <span>AI can make mistakes. Double-check important answers with your course materials or instructor.</span>
         </div>
         <div class="chat-footer">
           <input id="chatInput" type="text" placeholder="Ask the AI..." aria-label="Chat message" />
