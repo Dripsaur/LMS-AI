@@ -2533,9 +2533,6 @@ module.exports = app;
 
 
 const mammoth = require('mammoth');
-// pdf-parse v2 needs its worker initialized explicitly in serverless runtimes.
-require('pdf-parse/worker');
-const pdf = require('pdf-parse');
 
 // --- AUTO TRANSLATE FOR AI ---
 async function translateForAI(filePath) {
@@ -2550,9 +2547,18 @@ async function translateForAI(filePath) {
             return true;
         } 
         else if (ext === '.pdf') {
+            // Load PDF's native canvas stack only for PDF uploads, so unrelated
+            // routes such as /api/config can start without that optional native module.
+            require('pdf-parse/worker');
+            const { PDFParse } = require('pdf-parse');
             const dataBuffer = fs.readFileSync(filePath);
-            const data = await pdf(dataBuffer);
-            fs.writeFileSync(txtPath, data.text, 'utf8');
+            const parser = new PDFParse({ data: dataBuffer });
+            try {
+                const data = await parser.getText();
+                fs.writeFileSync(txtPath, data.text, 'utf8');
+            } finally {
+                await parser.destroy();
+            }
             console.log(` Translated PDF to: ${txtPath}`);
             return true;
         }
