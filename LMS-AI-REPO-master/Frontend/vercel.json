@@ -1,23 +1,13 @@
 {
-  "version": 2,
-  "builds": [
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
     {
-      "src": "**/*.html",
-      "use": "@vercel/static"
+      "source": "/api/:path*",
+      "destination": "https://imcc-lms-api.vercel.app/api/:path*"
     },
     {
-      "src": "**/*.js",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "**/*.css",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
+      "source": "/uploads/:path*",
+      "destination": "https://imcc-lms-api.vercel.app/uploads/:path*"
     }
   ]
 }

@@ -116,9 +116,15 @@ app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, '../Frontend/index.html'));
 });
 
-const uploadDir = path.join(__dirname, 'uploads');
+// Vercel's deployment bundle is read-only. /tmp is writable but ephemeral, so
+// production uploads must move to persistent object storage before launch.
+const uploadDir = process.env.UPLOAD_DIR || (process.env.VERCEL
+  ? path.join('/tmp', 'imcc-lms-uploads')
+  : path.join(__dirname, 'uploads'));
 fs.mkdirSync(uploadDir, { recursive: true });
-const flowiseUploadDir = path.join(__dirname, '..', '..', 'FlowiseApp', 'uploadss');
+const flowiseUploadDir = process.env.FLOWISE_UPLOAD_DIR || (process.env.VERCEL
+  ? path.join('/tmp', 'imcc-lms-flowise-uploads')
+  : path.join(__dirname, '..', '..', 'FlowiseApp', 'uploadss'));
 fs.mkdirSync(flowiseUploadDir, { recursive: true });
 // Keep previously extracted lesson text available after changing its destination.
 for (const filename of fs.readdirSync(uploadDir).filter((name) => name.toLowerCase().endsWith('.txt'))) {
@@ -2514,9 +2520,16 @@ app.post('/api/pages/resources', upload.single('file'), async (req, res) => {
   }
 });
 
-app.listen(5000, () => {
-  console.log('Server running on http://localhost:5000');
-});
+// Vercel imports the Express app as a serverless handler. Keep the local
+// listener for development only.
+if (require.main === module) {
+  const port = process.env.PORT || 5000;
+  app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
+  });
+}
+
+module.exports = app;
 
 
 const mammoth = require('mammoth');
