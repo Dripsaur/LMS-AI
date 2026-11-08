@@ -2533,6 +2533,8 @@ module.exports = app;
 
 
 const mammoth = require('mammoth');
+// pdf-parse v2 needs its worker initialized explicitly in serverless runtimes.
+require('pdf-parse/worker');
 const pdf = require('pdf-parse');
 
 // --- AUTO TRANSLATE FOR AI ---
